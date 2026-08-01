@@ -681,31 +681,44 @@ const RootLandingView = ({
 
             <section className="px-3 pb-12 md:px-10 md:pb-44 xl:px-16">
                 <div className="tat-root-local-grid mx-auto grid max-w-[1320px] gap-4 lg:grid-cols-12 lg:items-stretch">
-                    <div className="tat-root-reveal tat-root-map-card flex flex-col rounded-[1.6rem] border border-white/10 bg-[#f3dfbd] p-3.5 text-stone-950 md:rounded-[2.2rem] md:p-6 lg:col-span-6">
-                        <div className="mb-4 shrink-0 flex items-start justify-between gap-4 md:mb-5 md:gap-5">
-                            <div>
-                                <p className="text-[10px] font-black uppercase tracking-[0.3em] text-[#8a531c]">Ancrage Calvados</p>
-                                <h2 className="mt-3 max-w-xl font-serif text-4xl leading-none tracking-[-0.04em] md:text-5xl">Carte locale autour d Ifs et Caen</h2>
+                    <div className="tat-root-reveal tat-root-map-card flex flex-col rounded-[1.6rem] border border-white/5 bg-white/[0.02] p-1.5 shadow-[0_16px_40px_rgba(0,0,0,0.3)] md:rounded-[2rem] lg:col-span-6">
+                        <div className="flex h-full flex-col rounded-[1.2rem] border border-white/5 bg-[#13100d]/90 p-4 md:rounded-[1.6rem] md:p-5 lg:px-7 lg:py-5">
+                            <div className="mb-4 shrink-0 flex items-start justify-between gap-4 md:mb-5 md:gap-5">
+                                <div>
+                                    <p className="text-[10px] font-black uppercase tracking-[0.3em] text-[#dba45f]">Ancrage Calvados</p>
+                                    <h2 className="mt-2 max-w-xl font-serif text-[clamp(1.8rem,2.5vw,2.2rem)] leading-none tracking-[-0.03em] text-white">Carte locale autour d'Ifs et Caen</h2>
+                                </div>
+                                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/5 text-[#dba45f]">
+                                    <MapPin size={18} strokeWidth={1.5} />
+                                </div>
                             </div>
-                            <MapPin className="mt-2 shrink-0 text-[#8a531c]" size={30} strokeWidth={1.5} />
-                        </div>
-                        <div ref={mapRef} className="tat-root-map-frame relative flex-1 w-full min-h-[350px] overflow-hidden rounded-[1.15rem] md:rounded-[1.6rem] [perspective:1200px]">
+                            <div ref={mapRef} className="tat-root-map-frame relative flex-1 w-full min-h-[350px] [perspective:1200px]">
                             {/* 3D FLIP CONTAINER */}
                             <div className={`relative h-full w-full transition-transform duration-[1.1s] ease-[cubic-bezier(0.23,1,0.32,1)] [transform-style:preserve-3d] ${showReviewOverlay ? '[transform:rotateY(180deg)]' : ''}`}>
                                 
                                 {/* FRONT FACE : MAP */}
-                                <div className={`absolute inset-0 h-full w-full overflow-hidden rounded-[1.15rem] bg-[#160f09] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.12)] md:rounded-[1.6rem] [backface-visibility:hidden] [-webkit-backface-visibility:hidden] ${showReviewOverlay ? 'pointer-events-none' : ''}`}>
+                                <div className={`absolute inset-0 h-full w-full overflow-hidden rounded-[1rem] bg-[#160f09] text-white md:rounded-[1.2rem] [backface-visibility:hidden] [-webkit-backface-visibility:hidden] ${showReviewOverlay ? 'pointer-events-none' : ''}`}>
                                     <iframe 
                                         src="https://maps.google.com/maps?q=Tous%20%C3%A0%20Table%20made%20in%20Normandie,%20Chemin%20de%20Fleury,%20Ifs,%20France&t=&z=9&ie=UTF8&iwloc=&output=embed"
-                                        className="absolute top-[-150px] left-[-350px] h-[calc(100%+300px)] w-[calc(100%+700px)] max-w-none border-0 [filter:sepia(0.3)_contrast(0.95)_brightness(0.95)_hue-rotate(-10deg)] transition-all duration-700 hover:[filter:none]"
+                                        className="absolute left-[-150px] top-[-150px] h-[calc(100%+300px)] w-[calc(100%+300px)] max-w-none border-0 transition-all duration-700 hover:[filter:none] [filter:sepia(0.3)_contrast(0.95)_brightness(0.95)_hue-rotate(-10deg)]"
                                         allowFullScreen=""
                                         loading="lazy"
                                         referrerPolicy="no-referrer-when-downgrade"
                                         title="Carte interactive Tous à Table made in Normandie"
                                     />
-                                    
-                                    {/* CUSTOM PLACECARD COVER */}
-                                    <div className="pointer-events-auto absolute left-0 top-0 z-10 flex w-[270px] flex-col rounded-br-[1rem] border-b border-r border-white/5 bg-[#160f09] p-3.5 shadow-[4px_4px_24px_rgba(0,0,0,0.5)] md:w-[285px] md:rounded-br-[1.2rem] md:p-4">
+                                    {/* Action Button */}
+                                    <button
+                                        onClick={() => handleToggleReview(true)}
+                                        className="absolute bottom-1.5 right-1.5 flex items-center justify-center gap-2 rounded-full border border-white/20 bg-[#160f09]/80 px-4 py-2.5 text-xs font-black uppercase tracking-[0.1em] text-white shadow-xl backdrop-blur-md transition-all hover:bg-[#8a531c] md:bottom-2.5 md:right-2.5 md:left-auto md:px-5 md:py-3.5"
+                                    >
+                                        <MessageSquareHeart size={16} />
+                                        Laisser un avis
+                                    </button>
+                                </div>
+                                
+                                {/* CUSTOM PLACECARD COVER (PREMIUM FLOATING DOUBLE-BEZEL) */}
+                                <div className={`pointer-events-auto absolute left-1.5 top-1.5 z-10 rounded-[1.2rem] border border-white/10 bg-white/[0.02] p-1.5 shadow-[0_8px_32px_rgba(0,0,0,0.5)] backdrop-blur-md transition-opacity duration-700 md:left-2.5 md:top-2.5 md:rounded-[1.4rem] md:p-2 [backface-visibility:hidden] [-webkit-backface-visibility:hidden] ${showReviewOverlay ? 'pointer-events-none opacity-0' : 'opacity-100'}`}>
+                                    <div className="flex w-[260px] flex-col rounded-[0.825rem] border border-white/5 bg-[#160f09] p-3.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] md:w-[280px] md:rounded-[0.9rem] md:p-4">
                                         <div className="flex items-start justify-between">
                                             <div>
                                                 <h3 className="font-serif text-[17px] leading-tight text-[#f3dfbd] md:text-[19px]">Tous à Table</h3>
@@ -716,7 +729,7 @@ const RootLandingView = ({
                                                 target="_blank"
                                                 rel="noopener noreferrer"
                                                 title="Créer un itinéraire vers l'atelier"
-                                                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white/10 text-[#dba45f] transition-all hover:scale-110 hover:bg-[#dba45f] hover:text-[#160f09] active:scale-95"
+                                                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white/5 text-[#dba45f] transition-all hover:scale-110 hover:bg-[#dba45f] hover:text-[#160f09] active:scale-95"
                                             >
                                                 <MapPin size={16} />
                                             </a>
@@ -733,19 +746,10 @@ const RootLandingView = ({
                                             <span className="text-[9.5px] text-stone-500">(10 avis Google)</span>
                                         </div>
                                     </div>
-                                    
-                                    {/* Action Button */}
-                                    <button
-                                        onClick={() => handleToggleReview(true)}
-                                        className="absolute bottom-4 left-4 right-4 flex items-center justify-center gap-2 rounded-[1rem] border border-white/20 bg-[#160f09]/80 px-5 py-3.5 text-xs font-black uppercase tracking-[0.1em] text-white shadow-xl backdrop-blur-md transition-all hover:bg-[#8a531c] md:bottom-6 md:left-6 md:right-auto md:rounded-full"
-                                    >
-                                        <MessageSquareHeart size={16} />
-                                        Laisser un avis
-                                    </button>
                                 </div>
                                 
                                 {/* BACK FACE : REVIEW CTA */}
-                                <div className={`absolute inset-0 flex h-full w-full flex-col items-center justify-center overflow-hidden rounded-[1.15rem] border border-[#8a531c]/10 bg-[#fff9ea] px-6 text-center shadow-[inset_0_4px_24px_rgba(0,0,0,0.04)] md:rounded-[1.6rem] [backface-visibility:hidden] [-webkit-backface-visibility:hidden] [transform:rotateY(180deg)] ${showReviewOverlay ? 'pointer-events-auto' : 'pointer-events-none'}`}>
+                                <div className={`absolute inset-0 flex h-full w-full flex-col items-center justify-center overflow-hidden rounded-[1rem] border border-[#8a531c]/10 bg-[#fff9ea] px-6 text-center shadow-[inset_0_4px_24px_rgba(0,0,0,0.04)] md:rounded-[1.2rem] [backface-visibility:hidden] [-webkit-backface-visibility:hidden] [transform:rotateY(180deg)] ${showReviewOverlay ? 'pointer-events-auto' : 'pointer-events-none'}`}>
                                     <button
                                         onClick={() => handleToggleReview(false)}
                                         className="absolute right-4 top-4 z-50 flex h-10 w-10 items-center justify-center rounded-full bg-[#f3dfbd] text-[#8a531c] transition-colors hover:bg-[#8a531c] hover:text-white"
@@ -780,26 +784,27 @@ const RootLandingView = ({
                             </div>
                         </div>
                     </div>
+                </div>
                     <div className="flex flex-col rounded-[1.6rem] border border-white/5 bg-white/[0.02] p-1.5 shadow-[0_16px_40px_rgba(0,0,0,0.3)] md:rounded-[2rem] lg:col-span-6">
-                        <div className="flex h-full flex-col rounded-[1.2rem] border border-white/5 bg-[#13100d]/90 p-4 md:rounded-[1.6rem] md:p-6 lg:p-7">
-                            <div className="mb-6 md:mb-8">
+                        <div className="flex h-full flex-col rounded-[1.2rem] border border-white/5 bg-[#13100d]/90 p-4 md:rounded-[1.6rem] md:p-5 lg:px-7 lg:py-5">
+                            <div className="mb-4 md:mb-5">
                                 <h3 className="font-serif text-[clamp(1.8rem,2.5vw,2.2rem)] leading-none tracking-[-0.03em] text-white">Explorer la collection</h3>
                                 <p className="mt-2 text-[11px] leading-relaxed text-stone-300 md:text-[13px]">Des meubles anciens choisis, restaurés et prêts à vivre dans la maison.</p>
                             </div>
-                            <div className="flex flex-1 flex-col gap-1.5">
+                            <div className="flex flex-1 flex-col gap-[3px] md:gap-1.5">
                                 {localFocusCards.map((card, index) => (
                                     <React.Fragment key={card.title}>
-                                        <a href="/meubles-anciens" onClick={(event) => handleInternalNav(event, onOpenGallery)} className="tat-root-reveal tat-root-focus-card group relative flex items-center gap-4 rounded-[1rem] p-2 transition-all duration-300 md:hover:bg-white/[0.04]">
+                                        <a href="/meubles-anciens" onClick={(event) => handleInternalNav(event, onOpenGallery)} className="tat-root-reveal tat-root-focus-card group relative flex items-center gap-3 rounded-[1rem] p-1.5 transition-all duration-300 md:gap-4 md:p-2 md:hover:bg-white/[0.04]">
                                             {/* HIGH-END DOUBLE BEZEL FRAME */}
-                                            <div className="relative shrink-0 p-[3px] md:p-1 rounded-[12px] md:rounded-[1rem] bg-white/[0.02] border border-white/5 shadow-md">
-                                                <div className="relative h-14 w-20 md:h-16 md:w-28 overflow-hidden rounded-[9px] md:rounded-[12px] bg-stone-900 shadow-[inset_0_1px_1px_rgba(255,255,255,0.15)] ring-1 ring-inset ring-white/10">
+                                            <div className="relative shrink-0 p-[2px] md:p-1 rounded-[10px] md:rounded-[14px] bg-white/[0.02] border border-white/5 shadow-md">
+                                                <div className="relative h-[60px] w-[88px] md:h-[76px] md:w-[124px] overflow-hidden rounded-[8px] md:rounded-[11px] bg-stone-900 shadow-[inset_0_1px_1px_rgba(255,255,255,0.15)] ring-1 ring-inset ring-white/10">
                                                     <img src={card.image} alt={card.title} className="h-full w-full object-cover opacity-90" loading="lazy" decoding="async" />
                                                 </div>
                                             </div>
                                             <div className="flex flex-1 flex-col justify-center min-w-0 pr-6">
                                                 <h4 className="truncate font-serif text-[1.1rem] leading-none tracking-[-0.02em] text-white md:text-[1.3rem]">{card.title}</h4>
-                                                <p className="mt-1.5 line-clamp-2 text-[10px] leading-snug text-stone-400 md:text-[11.5px]">{card.text}</p>
-                                                <p className="mt-2 truncate text-[9px] font-black uppercase tracking-[0.16em] text-[#dba45f] md:text-[10px]">{card.search}</p>
+                                                <p className="mt-1 line-clamp-2 text-[10px] leading-snug text-stone-400 md:mt-1.5 md:text-[11.5px]">{card.text}</p>
+                                                <p className="mt-1.5 truncate text-[9px] font-black uppercase tracking-[0.16em] text-[#dba45f] md:mt-2 md:text-[10px]">{card.search}</p>
                                             </div>
                                             <div className="absolute right-3 top-1/2 flex -translate-y-1/2 items-center justify-center text-white/40 transition-colors group-hover:text-[#dba45f] md:right-4">
                                                 <ArrowRight size={16} strokeWidth={2} />
