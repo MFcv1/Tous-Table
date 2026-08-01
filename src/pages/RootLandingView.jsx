@@ -700,7 +700,7 @@ const RootLandingView = ({
                                 <div className={`absolute inset-0 h-full w-full overflow-hidden rounded-[1rem] bg-[#160f09] text-white md:rounded-[1.2rem] [backface-visibility:hidden] [-webkit-backface-visibility:hidden] ${showReviewOverlay ? 'pointer-events-none' : ''}`}>
                                     <iframe 
                                         src="https://maps.google.com/maps?q=Tous%20%C3%A0%20Table%20made%20in%20Normandie,%20Chemin%20de%20Fleury,%20Ifs,%20France&t=&z=9&ie=UTF8&iwloc=&output=embed"
-                                        className="absolute left-[-110px] top-[-110px] h-[calc(100%+340px)] w-[calc(100%+300px)] max-w-none border-0 transition-all duration-700 hover:[filter:none] [filter:sepia(0.3)_contrast(0.95)_brightness(0.95)_hue-rotate(-10deg)]"
+                                        className="absolute left-[-250px] top-[-250px] h-[calc(100%+620px)] w-[calc(100%+500px)] max-w-none border-0 transition-all duration-700 hover:[filter:none] [filter:sepia(0.3)_contrast(0.95)_brightness(0.95)_hue-rotate(-10deg)]"
                                         allowFullScreen=""
                                         loading="lazy"
                                         referrerPolicy="no-referrer-when-downgrade"
