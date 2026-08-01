@@ -26,9 +26,9 @@ const app = initializeApp(firebaseConfig);
 // En mode développement (localhost), utilise un token debug.
 // ============================================================
 if (typeof window !== 'undefined') {
-  // Active le mode debug pour localhost (npm run dev)
+  // Active le mode debug pour localhost (npm run dev) avec un token fixe
   if (window.location.hostname === 'localhost') {
-    window.FIREBASE_APPCHECK_DEBUG_TOKEN = true;
+    window.FIREBASE_APPCHECK_DEBUG_TOKEN = import.meta.env.VITE_APPCHECK_DEBUG_TOKEN || true;
   }
 
   initializeAppCheck(app, {

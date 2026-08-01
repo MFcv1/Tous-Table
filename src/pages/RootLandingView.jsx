@@ -2,7 +2,7 @@ import React, { useMemo, useRef, useState, useEffect } from 'react';
 import { useGSAP } from '@gsap/react';
 import gsap from 'gsap';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
-import { ArrowRight, ArrowUp, MapPin, Hammer, Menu, X, ShoppingBag, Truck, ChevronRight, ChevronLeft } from 'lucide-react';
+import { ArrowRight, ArrowUp, MapPin, Hammer, Menu, X, ShoppingBag, Truck, ChevronRight, ChevronLeft, Star, MessageSquareHeart } from 'lucide-react';
 import SEO from '../components/shared/SEO';
 import { SITE_URL, getProductPath } from '../utils/seoRoutes';
 import { applyHomeSEODefaultSelections } from '../utils/homeSEOSettings';
@@ -24,38 +24,30 @@ const localCities = [
     { name: 'Vire Normandie', x: 20, y: 86 },
 ];
 
-const mapLabelCities = [
-    { name: 'Ifs', x: 56.9, y: 55.2, mx: 58.2, my: 57.5, primary: true },
-    { name: 'Caen', x: 58, y: 45.7, mx: 59, my: 46.2, primary: true },
-    { name: 'Bayeux', x: 31.5, y: 50, mx: 31, my: 51 },
-    { name: 'Ouistreham', x: 56.8, y: 35.1, mx: 56.5, my: 34 },
-    { name: 'Cabourg', x: 67.6, y: 42.6, mx: 69.8, my: 45.6 },
-    { name: 'Deauville', x: 82, y: 35.8, mx: 84, my: 37.2 },
-    { name: 'Lisieux', x: 80.3, y: 56.8, mx: 81.5, my: 59.4 },
-    { name: 'Falaise', x: 52.5, y: 70.2, mx: 52.5, my: 72.4 },
-    { name: 'Vire', x: 32.4, y: 74.2, mx: 32.2, my: 75.6 },
-];
-
 const localFocusCards = [
     {
         title: 'Tables de ferme',
-        text: 'Tables en chene, grandes tablées, plateau massif et proportions pensées pour une maison vivante.',
-        search: 'table de ferme Caen',
+        text: 'Plateaux anciens, bois massif et grandes tablées familiales.',
+        search: '12 pièces disponibles',
+        image: '/images/gallery/cat_table_ferme.png',
     },
     {
-        title: 'Buffets anciens',
-        text: 'Buffets, bahuts et dessertes selectionnes pour le rangement, la patine et la presence dans la piece.',
-        search: 'buffet ancien Normandie',
+        title: 'Buffets & enfilades',
+        text: 'Rangement ancien, belle patine et présence discrète dans la pièce.',
+        search: '8 pièces disponibles',
+        image: '/images/gallery/cat_buffet.png',
     },
     {
         title: 'Armoires & commodes',
-        text: 'Pieces verticales, commodes, chevets et armoires pour apporter du bois ancien sans surcharger.',
-        search: 'commode ancienne Calvados',
+        text: 'Pièces verticales et meubles de caractère restaurés à l\'atelier.',
+        search: '7 pièces disponibles',
+        image: '/images/gallery/cat_armoire.png',
     },
     {
-        title: 'Planches & entretien',
-        text: 'Bois massif, accessoires utiles et produits du Comptoir pour conserver la matiere au quotidien.',
-        search: 'entretien bois massif',
+        title: 'Bois massif & entretien',
+        text: 'Planches, finitions et conseils pour conserver la matière vivante.',
+        search: 'Guides & accessoires',
+        image: '/images/gallery/hero-planches-2026-960.webp',
     },
 ];
 
@@ -198,6 +190,40 @@ const RootLandingView = ({
     const showHeader = useScrollDirection();
     const [showBackToTop, setShowBackToTop] = useState(false);
     const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+    const [showReviewOverlay, setShowReviewOverlay] = useState(false);
+    const mapRef = useRef(null);
+    const hasAutoFlippedRef = useRef(false);
+    
+    useEffect(() => {
+        if (!mapRef.current) return;
+        
+        let timeout;
+        const observer = new IntersectionObserver((entries) => {
+            if (entries[0].isIntersecting && !hasAutoFlippedRef.current) {
+                timeout = setTimeout(() => {
+                    if (!hasAutoFlippedRef.current) {
+                        setShowReviewOverlay(true);
+                        hasAutoFlippedRef.current = true;
+                    }
+                }, 5000);
+            } else {
+                clearTimeout(timeout);
+            }
+        }, { threshold: 0.6 });
+        
+        observer.observe(mapRef.current);
+        
+        return () => {
+            observer.disconnect();
+            clearTimeout(timeout);
+        };
+    }, []);
+
+    const handleToggleReview = (show) => {
+        setShowReviewOverlay(show);
+        hasAutoFlippedRef.current = true;
+    };
+
     const comptoirScrollRef = useRef(null);
     const handleComptoirScroll = (direction) => {
         if (comptoirScrollRef.current) {
@@ -559,7 +585,6 @@ const RootLandingView = ({
 
             <section className="relative min-h-[80svh] overflow-hidden px-5 pb-2 pt-36 md:px-10 md:pb-12 md:pt-44 xl:pt-48 xl:px-16">
                 <div className="absolute inset-0 bg-[radial-gradient(circle_at_76%_18%,rgba(219,164,95,0.28),transparent_32%),radial-gradient(circle_at_14%_18%,rgba(255,255,255,0.08),transparent_24%),linear-gradient(180deg,#090806_0%,#17100a_54%,#090806_100%)]" />
-                <div className="absolute inset-0 opacity-[0.18] [background-image:linear-gradient(rgba(255,255,255,0.08)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.08)_1px,transparent_1px)] [background-size:72px_72px]" />
                 <div className="relative mx-auto grid w-full max-w-[1560px] min-w-0 items-center gap-10 md:gap-12 lg:grid-cols-12">
                     <div className="tat-root-hero-copy w-full max-w-[calc(100vw-2.5rem)] min-w-0 lg:col-span-7 lg:max-w-none">
                         <p className="mb-7 max-w-2xl text-[10px] font-black uppercase tracking-[0.34em] text-[#dba45f]">{homeSEO.heroEyebrow}</p>
@@ -588,7 +613,15 @@ const RootLandingView = ({
                     </div>
                     <div className="tat-root-media relative w-full max-w-[calc(100vw-2.5rem)] min-w-0 pb-8 md:pb-0 lg:col-span-5 lg:max-w-none">
                         {/* High-End Double Bezel Hero Carousel Outer Wrapper */}
-                        <div className="tat-root-hero-carousel p-2 bg-white/[0.02] border border-white/5 rounded-[2.6rem] shadow-[0_50px_160px_rgba(0,0,0,0.5)] md:rounded-[3.4rem] lg:h-[min(56svh,580px)] lg:aspect-auto xl:h-[min(58svh,620px)]">
+                        <div className="tat-root-hero-carousel relative p-2 bg-white/[0.02] border border-white/5 rounded-[2.6rem] shadow-[0_50px_160px_rgba(0,0,0,0.5)] md:rounded-[3.4rem] lg:h-[min(56svh,580px)] lg:aspect-auto xl:h-[min(58svh,620px)]">
+                            
+                            {/* SYNERGISTIC ARCHITECTURAL FRAME */}
+                            {/* Top Line */}
+                            <div className="absolute -top-16 left-[-100vw] right-[-100vw] h-px bg-white/[0.06] [mask-image:linear-gradient(to_right,transparent_34%,black_45%,black_55%,transparent_70%)] hidden lg:block pointer-events-none" />
+                            {/* Bottom Line (slightly longer on the left) */}
+                            <div className="absolute -bottom-16 left-[-100vw] right-[-100vw] h-px bg-white/[0.06] [mask-image:linear-gradient(to_right,transparent_31%,black_45%,black_55%,transparent_70%)] hidden lg:block pointer-events-none" />
+                            <div className="absolute -left-16 -right-16 top-[-100vh] bottom-[-100vh] border-x border-white/[0.06] [mask-image:linear-gradient(to_bottom,transparent_30%,black_45%,black_55%,transparent_70%)] hidden lg:block pointer-events-none" />
+
                             {/* Inner Core */}
                             <div className="relative w-full h-full aspect-[4/5] lg:aspect-auto overflow-hidden rounded-[2.1rem] bg-stone-900 shadow-[inset_0_1px_1px_rgba(255,255,255,0.15)] border border-white/10 md:rounded-[2.9rem]">
                             {homeSEO.heroSlides.map((slide, index) => (
@@ -648,53 +681,137 @@ const RootLandingView = ({
 
             <section className="px-3 pb-12 md:px-10 md:pb-44 xl:px-16">
                 <div className="tat-root-local-grid mx-auto grid max-w-[1320px] gap-4 lg:grid-cols-12 lg:items-stretch">
-                    <div className="tat-root-reveal tat-root-map-card rounded-[1.6rem] border border-white/10 bg-[#f3dfbd] p-3.5 text-stone-950 md:rounded-[2.2rem] md:p-6 lg:col-span-6">
-                        <div className="mb-4 flex items-start justify-between gap-4 md:mb-5 md:gap-5">
+                    <div className="tat-root-reveal tat-root-map-card flex flex-col rounded-[1.6rem] border border-white/10 bg-[#f3dfbd] p-3.5 text-stone-950 md:rounded-[2.2rem] md:p-6 lg:col-span-6">
+                        <div className="mb-4 shrink-0 flex items-start justify-between gap-4 md:mb-5 md:gap-5">
                             <div>
                                 <p className="text-[10px] font-black uppercase tracking-[0.3em] text-[#8a531c]">Ancrage Calvados</p>
                                 <h2 className="mt-3 max-w-xl font-serif text-4xl leading-none tracking-[-0.04em] md:text-5xl">Carte locale autour d Ifs et Caen</h2>
                             </div>
                             <MapPin className="mt-2 shrink-0 text-[#8a531c]" size={30} strokeWidth={1.5} />
                         </div>
-                        <div className="tat-root-map-frame relative aspect-[16/10] overflow-hidden rounded-[1.15rem] bg-[#160f09] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.12)] md:rounded-[1.6rem]">
-                            <img
-                                src="/images/landing/calvados-map-2026.webp"
-                                alt="Carte du Calvados autour de Caen et Ifs, avec littoral, routes et reliefs de Normandie"
-                                className="h-full w-full object-cover"
-                                loading="lazy"
-                                decoding="async"
-                            />
-                            <div className="absolute inset-0 bg-[radial-gradient(circle_at_58%_51%,rgba(255,240,191,0.2),transparent_18%),linear-gradient(180deg,rgba(22,15,9,0.06),rgba(22,15,9,0.18))]" />
-                            {mapLabelCities.map((city) => (
-                                <React.Fragment key={city.name}>
-                                    <span
-                                        className={`tat-root-map-label absolute inline-flex -translate-x-1/2 -translate-y-1/2 items-center justify-center whitespace-nowrap rounded-full border text-center font-black uppercase leading-none tracking-[0.035em] antialiased shadow-[0_3px_7px_rgba(0,0,0,0.2)] md:hidden ${city.primary ? 'h-[12px] min-w-[22px] border-[#2f1d0d] bg-[#fff0bf] px-1.5 text-[5.8px] text-stone-950' : 'h-[10px] min-w-[22px] border-[#2f1d0d]/40 bg-[#fff7dd]/95 px-1 text-[4.8px] text-[#2a190d]'}`}
-                                        style={{ left: `${city.mx ?? city.x}%`, top: `${city.my ?? city.y}%` }}
+                        <div ref={mapRef} className="tat-root-map-frame relative flex-1 w-full min-h-[350px] overflow-hidden rounded-[1.15rem] md:rounded-[1.6rem] [perspective:1200px]">
+                            {/* 3D FLIP CONTAINER */}
+                            <div className={`relative h-full w-full transition-transform duration-[1.1s] ease-[cubic-bezier(0.23,1,0.32,1)] [transform-style:preserve-3d] ${showReviewOverlay ? '[transform:rotateY(180deg)]' : ''}`}>
+                                
+                                {/* FRONT FACE : MAP */}
+                                <div className={`absolute inset-0 h-full w-full overflow-hidden rounded-[1.15rem] bg-[#160f09] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.12)] md:rounded-[1.6rem] [backface-visibility:hidden] [-webkit-backface-visibility:hidden] ${showReviewOverlay ? 'pointer-events-none' : ''}`}>
+                                    <iframe 
+                                        src="https://maps.google.com/maps?q=Tous%20%C3%A0%20Table%20made%20in%20Normandie,%20Chemin%20de%20Fleury,%20Ifs,%20France&t=&z=9&ie=UTF8&iwloc=&output=embed"
+                                        className="absolute top-[-150px] left-[-350px] h-[calc(100%+300px)] w-[calc(100%+700px)] max-w-none border-0 [filter:sepia(0.3)_contrast(0.95)_brightness(0.95)_hue-rotate(-10deg)] transition-all duration-700 hover:[filter:none]"
+                                        allowFullScreen=""
+                                        loading="lazy"
+                                        referrerPolicy="no-referrer-when-downgrade"
+                                        title="Carte interactive Tous à Table made in Normandie"
+                                    />
+                                    
+                                    {/* CUSTOM PLACECARD COVER */}
+                                    <div className="pointer-events-auto absolute left-0 top-0 z-10 flex w-[270px] flex-col rounded-br-[1rem] border-b border-r border-white/5 bg-[#160f09] p-3.5 shadow-[4px_4px_24px_rgba(0,0,0,0.5)] md:w-[285px] md:rounded-br-[1.2rem] md:p-4">
+                                        <div className="flex items-start justify-between">
+                                            <div>
+                                                <h3 className="font-serif text-[17px] leading-tight text-[#f3dfbd] md:text-[19px]">Tous à Table</h3>
+                                                <p className="mt-0.5 text-[10px] leading-snug text-[#f3dfbd]/70 md:text-[11px]">Showroom d'ameublement ancien<br />346 Chem. de Fleury, 14123 Ifs</p>
+                                            </div>
+                                            <a 
+                                                href="https://www.google.com/maps/dir/?api=1&destination=Tous+à+Table+made+in+Normandie,+Chemin+de+Fleury,+Ifs,+France"
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                title="Créer un itinéraire vers l'atelier"
+                                                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white/10 text-[#dba45f] transition-all hover:scale-110 hover:bg-[#dba45f] hover:text-[#160f09] active:scale-95"
+                                            >
+                                                <MapPin size={16} />
+                                            </a>
+                                        </div>
+                                        <div className="mt-2.5 flex items-center gap-2 border-t border-white/5 pt-2.5">
+                                            <span className="text-[11px] font-bold text-white">5,0</span>
+                                            <div className="flex gap-0.5 text-[#dba45f]">
+                                                <Star size={10} fill="currentColor" />
+                                                <Star size={10} fill="currentColor" />
+                                                <Star size={10} fill="currentColor" />
+                                                <Star size={10} fill="currentColor" />
+                                                <Star size={10} fill="currentColor" />
+                                            </div>
+                                            <span className="text-[9.5px] text-stone-500">(10 avis Google)</span>
+                                        </div>
+                                    </div>
+                                    
+                                    {/* Action Button */}
+                                    <button
+                                        onClick={() => handleToggleReview(true)}
+                                        className="absolute bottom-4 left-4 right-4 flex items-center justify-center gap-2 rounded-[1rem] border border-white/20 bg-[#160f09]/80 px-5 py-3.5 text-xs font-black uppercase tracking-[0.1em] text-white shadow-xl backdrop-blur-md transition-all hover:bg-[#8a531c] md:bottom-6 md:left-6 md:right-auto md:rounded-full"
                                     >
-                                        {city.name}
-                                    </span>
-                                    <span
-                                        className={`tat-root-map-label absolute hidden -translate-x-1/2 -translate-y-1/2 items-center justify-center whitespace-nowrap rounded-full border text-center font-black uppercase leading-none tracking-[0.055em] antialiased shadow-[0_4px_10px_rgba(0,0,0,0.22)] md:inline-flex ${city.primary ? 'h-[18px] min-w-[34px] border-[#2f1d0d] bg-[#fff0bf] px-2 text-[8px] text-stone-950' : 'h-[14px] min-w-[34px] border-[#2f1d0d]/40 bg-[#fff7dd]/95 px-1.5 text-[7px] text-[#2a190d]'}`}
-                                        style={{ left: `${city.x}%`, top: `${city.y}%` }}
+                                        <MessageSquareHeart size={16} />
+                                        Laisser un avis
+                                    </button>
+                                </div>
+                                
+                                {/* BACK FACE : REVIEW CTA */}
+                                <div className={`absolute inset-0 flex h-full w-full flex-col items-center justify-center overflow-hidden rounded-[1.15rem] border border-[#8a531c]/10 bg-[#fff9ea] px-6 text-center shadow-[inset_0_4px_24px_rgba(0,0,0,0.04)] md:rounded-[1.6rem] [backface-visibility:hidden] [-webkit-backface-visibility:hidden] [transform:rotateY(180deg)] ${showReviewOverlay ? 'pointer-events-auto' : 'pointer-events-none'}`}>
+                                    <button
+                                        onClick={() => handleToggleReview(false)}
+                                        className="absolute right-4 top-4 z-50 flex h-10 w-10 items-center justify-center rounded-full bg-[#f3dfbd] text-[#8a531c] transition-colors hover:bg-[#8a531c] hover:text-white"
                                     >
-                                        {city.name}
-                                    </span>
-                                </React.Fragment>
-                            ))}
+                                        <X size={18} />
+                                    </button>
+                                    
+                                    <div className="mb-5 flex h-14 w-14 items-center justify-center rounded-full bg-white shadow-sm border border-stone-200/60 md:h-16 md:w-16 md:mb-6">
+                                        <svg viewBox="0 0 24 24" width="26" height="26" xmlns="http://www.w3.org/2000/svg">
+                                            <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
+                                            <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
+                                            <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/>
+                                            <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
+                                        </svg>
+                                    </div>
+                                    
+                                    <h3 className="mb-3 font-serif text-[clamp(1.6rem,2vw,2.2rem)] leading-tight text-stone-900">Soutenez l'atelier</h3>
+                                    <p className="mb-8 max-w-[280px] text-xs leading-relaxed text-stone-600 md:max-w-sm md:text-sm">
+                                        Les avis sur Google nous aident à faire découvrir nos meubles anciens restaurés à de nouvelles maisons. Merci pour votre soutien !
+                                    </p>
+                                    
+                                    <a
+                                        href="https://g.page/r/CepClsGcSHS2EBM/review"
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="inline-flex items-center gap-3 rounded-full bg-[#160f09] px-6 py-3.5 text-[10px] font-black uppercase tracking-[0.15em] text-[#f3dfbd] transition-transform hover:scale-105 active:scale-95 md:px-8 md:py-4 md:text-xs"
+                                    >
+                                        Écrire un avis Google
+                                    </a>
+                                </div>
+                                
+                            </div>
                         </div>
                     </div>
-                    <div className="grid grid-cols-2 gap-2.5 md:gap-4 lg:col-span-6 lg:grid-rows-2">
-                        {localFocusCards.map((card, index) => (
-                            <div key={card.title} className="tat-root-reveal tat-root-focus-card flex min-h-[158px] flex-col rounded-[1.15rem] border border-white/10 bg-white/[0.06] p-3 md:min-h-[220px] md:rounded-[2rem] md:p-5 lg:min-h-0 lg:p-4 xl:p-5">
-                                <div className="mb-2 flex items-center justify-between gap-2 md:mb-3.5 md:gap-4 lg:mb-2.5">
-                                    <span className="h-px flex-1 bg-[#dba45f]/38" />
-                                    <span className="text-[8px] font-black uppercase tracking-[0.16em] text-[#dba45f] md:text-[10px] md:tracking-[0.22em]">{String(index + 1).padStart(2, '0')}</span>
-                                </div>
-                                <h3 className="font-serif text-[1.08rem] leading-[0.98] tracking-[-0.035em] md:text-[clamp(1.55rem,1.85vw,2rem)] md:leading-none">{card.title}</h3>
-                                <p className="mt-2 overflow-hidden text-[10.5px] leading-snug text-stone-300 [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:4] md:mt-2.5 md:text-sm md:leading-relaxed md:[display:block] lg:mt-2 lg:text-[13px] lg:leading-snug xl:text-sm xl:leading-relaxed">{card.text}</p>
-                                <p className="mt-auto truncate rounded-full border border-white/10 px-2.5 py-1.5 text-[6.5px] font-black uppercase tracking-[0.08em] text-white/58 md:px-3.5 md:text-[9px] md:tracking-[0.16em] lg:px-3 lg:py-1">{card.search}</p>
+                    <div className="flex flex-col rounded-[1.6rem] border border-white/5 bg-white/[0.02] p-1.5 shadow-[0_16px_40px_rgba(0,0,0,0.3)] md:rounded-[2rem] lg:col-span-6">
+                        <div className="flex h-full flex-col rounded-[1.2rem] border border-white/5 bg-[#13100d]/90 p-4 md:rounded-[1.6rem] md:p-6 lg:p-7">
+                            <div className="mb-6 md:mb-8">
+                                <h3 className="font-serif text-[clamp(1.8rem,2.5vw,2.2rem)] leading-none tracking-[-0.03em] text-white">Explorer la collection</h3>
+                                <p className="mt-2 text-[11px] leading-relaxed text-stone-300 md:text-[13px]">Des meubles anciens choisis, restaurés et prêts à vivre dans la maison.</p>
                             </div>
-                        ))}
+                            <div className="flex flex-1 flex-col gap-1.5">
+                                {localFocusCards.map((card, index) => (
+                                    <React.Fragment key={card.title}>
+                                        <a href="/meubles-anciens" onClick={(event) => handleInternalNav(event, onOpenGallery)} className="tat-root-reveal tat-root-focus-card group relative flex items-center gap-4 rounded-[1rem] p-2 transition-all duration-300 md:hover:bg-white/[0.04]">
+                                            {/* HIGH-END DOUBLE BEZEL FRAME */}
+                                            <div className="relative shrink-0 p-[3px] md:p-1 rounded-[12px] md:rounded-[1rem] bg-white/[0.02] border border-white/5 shadow-md">
+                                                <div className="relative h-14 w-20 md:h-16 md:w-28 overflow-hidden rounded-[9px] md:rounded-[12px] bg-stone-900 shadow-[inset_0_1px_1px_rgba(255,255,255,0.15)] ring-1 ring-inset ring-white/10">
+                                                    <img src={card.image} alt={card.title} className="h-full w-full object-cover opacity-90" loading="lazy" decoding="async" />
+                                                </div>
+                                            </div>
+                                            <div className="flex flex-1 flex-col justify-center min-w-0 pr-6">
+                                                <h4 className="truncate font-serif text-[1.1rem] leading-none tracking-[-0.02em] text-white md:text-[1.3rem]">{card.title}</h4>
+                                                <p className="mt-1.5 line-clamp-2 text-[10px] leading-snug text-stone-400 md:text-[11.5px]">{card.text}</p>
+                                                <p className="mt-2 truncate text-[9px] font-black uppercase tracking-[0.16em] text-[#dba45f] md:text-[10px]">{card.search}</p>
+                                            </div>
+                                            <div className="absolute right-3 top-1/2 flex -translate-y-1/2 items-center justify-center text-white/40 transition-colors group-hover:text-[#dba45f] md:right-4">
+                                                <ArrowRight size={16} strokeWidth={2} />
+                                            </div>
+                                        </a>
+                                        {index < localFocusCards.length - 1 && (
+                                            <div className="h-px w-full bg-white/5" />
+                                        )}
+                                    </React.Fragment>
+                                ))}
+                            </div>
+                        </div>
                     </div>
                     <a href="/livraison-meubles-anciens-france" onClick={(event) => handleInternalNav(event, onOpenDelivery)} className="tat-root-reveal tat-root-delivery-card group rounded-[1.6rem] border border-[#f0c987]/35 bg-[#f0c987] p-6 text-stone-950 transition-transform duration-700 ease-[cubic-bezier(0.32,0.72,0,1)] md:hover:-translate-y-1 md:rounded-[2rem] md:p-8 lg:p-10 xl:p-12 lg:col-span-12">
                         <div className="flex flex-col justify-between gap-5 md:flex-row md:items-end">

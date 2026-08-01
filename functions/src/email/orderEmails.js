@@ -9,6 +9,7 @@ const admin = require('firebase-admin');
 const nodemailer = require('nodemailer');
 const { GMAIL_EMAIL, GMAIL_PASSWORD } = require('../../helpers/secrets');
 const { getSiteUrl } = require('../../helpers/config');
+const { generateInvoiceBuffer } = require('../utils/generateInvoicePDF');
 
 const GOOGLE_REVIEW_URL = 'https://g.page/r/CepCisGcSHS2EAE/review';
 
@@ -215,6 +216,20 @@ async function sendNewOrderEmails(orderId, order) {
         `
     };
 
+    let invoiceAttachment = null;
+    try {
+        const pdfBuffer = generateInvoiceBuffer(order);
+        const formatId = (order.id || orderId || '').slice(0, 8).toUpperCase() || 'N-A';
+        invoiceAttachment = {
+            filename: `Facture_${formatId}.pdf`,
+            content: pdfBuffer,
+            contentType: 'application/pdf'
+        };
+        adminMailOptions.attachments = [invoiceAttachment];
+    } catch (err) {
+        console.error("Erreur lors de la génération de la facture PDF pour l'email:", err);
+    }
+
     const paymentBlock = isDeferred ? `
         <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin-top:18px; background:#fff7e6; border:1px solid #f0d7a2; border-radius:22px; padding:18px;">
             <tr>
@@ -238,12 +253,13 @@ async function sendNewOrderEmails(orderId, order) {
             ctaLabel: 'Voir ma commande',
             footerNote: 'Votre récapitulatif reste disponible dans votre espace Mes commandes.',
             children: `
-                <p style="margin:0 0 18px; color:#44403c; font-family:Arial,sans-serif; font-size:15px; line-height:24px;">Bonjour ${escapeHtml(shipping.fullName || '')}, voici le récapitulatif complet de votre commande.</p>
+            <p style="margin:0 0 18px; color:#44403c; font-family:Arial,sans-serif; font-size:15px; line-height:24px;">Bonjour ${escapeHtml(shipping.fullName || '')}, voici le récapitulatif complet de votre commande.</p>
                 ${renderOrderSummaryCard(order)}
                 ${paymentBlock}
                 ${renderShippingCard(order)}
             `
-        })
+        }),
+        attachments: invoiceAttachment ? [invoiceAttachment] : []
     } : null;
 
     try {

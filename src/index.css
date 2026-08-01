@@ -106,17 +106,29 @@ body.modal-open {
 
 .tat-root-hero-slide {
   opacity: 0;
-  animation: tat-root-hero-fade 10s cubic-bezier(0.45, 0, 0.2, 1) infinite;
   will-change: opacity;
 }
 
+.tat-root-hero-slide-1 {
+  animation: tat-root-fade-1 16s ease-in-out infinite;
+}
+
 .tat-root-hero-slide-2 {
-  animation-delay: 5s;
+  animation: tat-root-fade-2 16s ease-in-out infinite;
 }
 
 .tat-root-hero-slide img {
   image-rendering: auto;
   transform: translateZ(0);
+  will-change: transform;
+}
+
+.tat-root-hero-slide-1 img {
+  animation: tat-root-move-1 16s ease-in-out infinite;
+}
+
+.tat-root-hero-slide-2 img {
+  animation: tat-root-move-2 16s ease-in-out infinite;
 }
 
 .tat-root-map-frame svg text {
@@ -138,20 +150,26 @@ body.modal-open {
   overflow: hidden;
 }
 
-@keyframes tat-root-hero-fade {
-  0%,
-  40% {
-    opacity: 1;
-  }
+@keyframes tat-root-fade-1 {
+  0%, 42% { opacity: 1; }
+  50%, 92% { opacity: 0; }
+  100% { opacity: 1; }
+}
 
-  50%,
-  90% {
-    opacity: 0;
-  }
+@keyframes tat-root-fade-2 {
+  0%, 42% { opacity: 0; }
+  50%, 92% { opacity: 1; }
+  100% { opacity: 0; }
+}
 
-  100% {
-    opacity: 1;
-  }
+@keyframes tat-root-move-1 {
+  0%, 100% { transform: scale(1.10); }
+  50% { transform: scale(1.0); }
+}
+
+@keyframes tat-root-move-2 {
+  0%, 50% { transform: scale(1.0); }
+  100% { transform: scale(1.10); }
 }
 
 @media (prefers-reduced-motion: reduce) {

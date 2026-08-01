@@ -118,6 +118,20 @@ exports.stripeWebhook = functions.runWith({ secrets: [STRIPE_SECRET_KEY, STRIPE_
             });
 
             console.log("✅ Commande confirmée (paid):", orderId);
+
+            // [NEW] Vidage du panier côté serveur après paiement Stripe (Sécurité maximale)
+            try {
+                const cartRef = db.collection('users').doc(userId).collection('cart');
+                const cartSnaps = await cartRef.get();
+                if (!cartSnaps.empty) {
+                    const batch = db.batch();
+                    cartSnaps.forEach(doc => batch.delete(doc.ref));
+                    await batch.commit();
+                }
+            } catch (err) {
+                console.error("Erreur vidage panier côté serveur après Stripe:", err);
+            }
+
         } catch (error) {
             console.error("❌ CRITICAL Webhook Error (payment_intent.succeeded):", error);
         }

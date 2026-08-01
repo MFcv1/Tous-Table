@@ -17,7 +17,8 @@
     "verify:prod-env": "node scripts/verify-prod-env.mjs",
     "verify:prod-furniture": "node scripts/verify-prod-furniture-categories.mjs",
     "verify:seo-roadmap": "node scripts/verify-seo-roadmap.mjs",
-    "verify:comptoir-new-products": "node scripts/validate-comptoir-new-products.mjs"
+    "verify:comptoir-new-products": "node scripts/validate-comptoir-new-products.mjs",
+    "dashboard": "node scripts/deploy/dashboard.mjs"
   },
   "dependencies": {
     "@gsap/react": "^2.1.2",
@@ -44,9 +45,12 @@
     "@eslint/js": "^10.0.1",
     "@vitejs/plugin-react": "^4.3.3",
     "autoprefixer": "^10.4.23",
+    "chalk": "^6.0.0",
     "eslint-plugin-react": "^7.37.5",
     "eslint-plugin-react-hooks": "^7.0.1",
     "eslint-plugin-unused-imports": "^4.4.1",
+    "inquirer": "^14.0.2",
+    "ora": "^9.4.1",
     "postcss": "^8.5.6",
     "tailwindcss": "^4.1.18",
     "vite": "^5.4.11"

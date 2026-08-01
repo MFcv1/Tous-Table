@@ -149,6 +149,19 @@ exports.createOrder = functions.runWith({ secrets: [STRIPE_SECRET_KEY, GMAIL_EMA
                 });
             });
 
+            // [NEW] Vidage du panier côté serveur (Sécurité maximale)
+            try {
+                const cartRef = db.collection('users').doc(userId).collection('cart');
+                const cartSnaps = await cartRef.get();
+                if (!cartSnaps.empty) {
+                    const batch = db.batch();
+                    cartSnaps.forEach(doc => batch.delete(doc.ref));
+                    await batch.commit();
+                }
+            } catch (err) {
+                console.error("Erreur vidage panier côté serveur:", err);
+            }
+
             return { success: true, orderId: orderRef.id };
         } catch (e) {
             console.error("Manual Order Error", e);

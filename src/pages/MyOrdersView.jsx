@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { motion } from 'framer-motion';
 import { collection, query, where, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase/config';
 import { functions } from '../firebase/config';
@@ -204,6 +205,29 @@ const MyOrdersView = ({ user, onBack, darkMode, contactInfo }) => {
 
                                         {/* ACTIONS GRID */}
                                         <div className="pt-6 sm:pt-8 grid grid-cols-1 sm:grid-cols-2 gap-2.5 sm:gap-4 max-w-md">
+                                            
+                                            {/* BOUTON MOBILE POUR VOIR LE RIB */}
+                                            {(order.status === 'pending_payment' || order.status === 'pending') && (
+                                                <button
+                                                    onClick={() => {
+                                                        const el = document.getElementById(`iban-box-${order.id}`);
+                                                        if (el) {
+                                                            el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                                            // Effet visuel temporaire pour attirer l'oeil
+                                                            const originalClasses = el.className;
+                                                            el.className = originalClasses + (darkMode ? ' ring-4 ring-amber-500 shadow-xl shadow-amber-500/20' : ' ring-4 ring-amber-400 shadow-xl shadow-amber-500/40');
+                                                            setTimeout(() => {
+                                                                el.className = originalClasses;
+                                                            }, 1500);
+                                                        }
+                                                    }}
+                                                    className="sm:col-span-2 md:hidden flex items-center justify-center gap-2 sm:gap-3 py-3 sm:py-4 bg-amber-500 text-white rounded-xl sm:rounded-2xl text-[10px] sm:text-[11px] font-black uppercase tracking-widest hover:bg-amber-600 transition-all shadow-lg shadow-amber-500/30 active:scale-[0.98] transform-gpu will-change-transform group animate-pulse"
+                                                >
+                                                    <CreditCard size={14} className="sm:w-4 sm:h-4 group-hover:scale-110 transition-transform" />
+                                                    Voir le RIB pour le virement ↓
+                                                </button>
+                                            )}
+
                                             <button
                                                 onClick={() => setShowContactPopup(true)}
                                                 className="sm:col-span-2 flex items-center justify-center gap-2 sm:gap-3 py-3 sm:py-4 bg-stone-900 text-white dark:bg-white dark:text-stone-900 rounded-xl sm:rounded-2xl text-[10px] sm:text-[11px] font-black uppercase tracking-widest hover:bg-stone-800 dark:hover:bg-white/90 transition-all shadow-md active:scale-[0.98] transform-gpu will-change-transform group"
@@ -212,17 +236,35 @@ const MyOrdersView = ({ user, onBack, darkMode, contactInfo }) => {
                                                 Contacter le vendeur
                                             </button>
 
-                                            <button
-                                                onClick={() => handleDownloadInvoice(order)}
-                                                disabled={Boolean(downloadingInvoice)}
-                                                className="flex items-center justify-center gap-2 py-3 sm:py-4 ring-1 ring-inset ring-stone-200 dark:ring-stone-700 rounded-xl sm:rounded-2xl text-[9px] sm:text-[10px] font-black uppercase tracking-widest hover:bg-stone-50 dark:hover:bg-stone-800 active:scale-[0.98] transform-gpu will-change-transform transition-all opacity-60 hover:opacity-100 disabled:opacity-30 disabled:cursor-not-allowed"
+                                            <div
+                                                onClick={() => !downloadingInvoice && handleDownloadInvoice(order)}
+                                                className={`relative group p-[1.5px] rounded-xl sm:rounded-2xl overflow-hidden cursor-pointer transition-all w-full ${downloadingInvoice ? 'opacity-50 cursor-wait' : 'active:scale-[0.98]'}`}
                                             >
-                                                {downloadingInvoice === order.id ? (
-                                                    <><Loader2 size={12} className="sm:w-3.5 sm:h-3.5 animate-spin" /> Création...</>
-                                                ) : (
-                                                    <><Download size={12} className="sm:w-3.5 sm:h-3.5" /> Télécharger la facture</>
-                                                )}
-                                            </button>
+                                                {/* NEON BORDER */}
+                                                <motion.div
+                                                    initial={{ opacity: 0, rotate: 0 }}
+                                                    animate={{ opacity: 1, rotate: -360 }}
+                                                    transition={{ 
+                                                        opacity: { duration: 0.3, delay: 0.1 }, 
+                                                        rotate: { repeat: Infinity, duration: 6, ease: "linear" } 
+                                                    }}
+                                                    className="absolute top-1/2 left-1/2 w-[300%] aspect-square -translate-x-1/2 -translate-y-1/2 z-0"
+                                                    style={{
+                                                        background: darkMode 
+                                                            ? "conic-gradient(from 0deg, transparent 30%, rgba(255,255,255,0) 35%, rgba(255,255,255,1) 50%, rgba(255,255,255,0) 65%, transparent 70%)"
+                                                            : "conic-gradient(from 0deg, transparent 30%, rgba(0,0,0,0) 35%, rgba(0,0,0,1) 50%, rgba(0,0,0,0) 65%, transparent 70%)",
+                                                    }}
+                                                />
+
+                                                {/* INNER CONTENT */}
+                                                <div className={`relative z-10 w-full h-full p-3 sm:p-4 rounded-[11px] sm:rounded-[15px] flex items-center justify-center gap-2 transition-all backdrop-blur-md ${darkMode ? 'bg-stone-900 group-hover:bg-stone-800' : 'bg-white group-hover:bg-stone-50'}`}>
+                                                    {downloadingInvoice === order.id ? (
+                                                        <><Loader2 size={12} className="sm:w-3.5 sm:h-3.5 animate-spin text-stone-900 dark:text-white" /> <span className="text-[9px] sm:text-[10px] font-black uppercase tracking-widest text-stone-900 dark:text-white">Création...</span></>
+                                                    ) : (
+                                                        <><Download size={12} className="sm:w-3.5 sm:h-3.5 text-stone-900 dark:text-white" /> <span className="text-[9px] sm:text-[10px] font-black uppercase tracking-widest text-stone-900 dark:text-white">Télécharger la facture</span></>
+                                                    )}
+                                                </div>
+                                            </div>
 
                                             {canCancel(order) && (
                                                 <button
@@ -244,7 +286,7 @@ const MyOrdersView = ({ user, onBack, darkMode, contactInfo }) => {
 
                                         <div className="space-y-4">
                                             {(order.status === 'pending_payment' || order.status === 'pending') && (
-                                                <div className={`p-5 sm:p-6 rounded-[2rem] sm:rounded-[2.5rem] border-2 border-dashed ${darkMode ? 'bg-amber-500/5 border-amber-500/20' : 'bg-amber-50 border-amber-200'} space-y-6 shadow-sm`}>
+                                                <div id={`iban-box-${order.id}`} className={`transition-all duration-700 p-5 sm:p-6 rounded-[2rem] sm:rounded-[2.5rem] border-2 border-dashed ${darkMode ? 'bg-amber-500/5 border-amber-500/20' : 'bg-amber-50 border-amber-200'} space-y-6 shadow-sm`}>
                                                     <div className="flex items-start gap-4">
                                                         <div className="h-11 w-11 min-h-11 min-w-11 sm:h-12 sm:w-12 sm:min-h-12 sm:min-w-12 aspect-square flex-none rounded-2xl bg-amber-500 text-white flex items-center justify-center shadow-lg shadow-amber-200/50">
                                                             <CreditCard size={20} className="sm:w-[22px] sm:h-[22px]" strokeWidth={2.4} />

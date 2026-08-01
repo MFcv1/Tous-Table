@@ -22,9 +22,7 @@ const OrderSuccessModal = ({ onClose, paymentMethod }) => {
                             {isStripe ? 'Votre commande est confirmée.' : 'Votre commande est bien réservée.'}
                         </h2>
                         <p className="mx-auto max-w-[330px] text-sm font-medium leading-6 text-stone-600">
-                            {isStripe
-                                ? 'Vous allez être redirigé vers Mes commandes pour retrouver le récapitulatif et le suivi.'
-                                : 'Vous allez être redirigé vers Mes commandes pour retrouver le meuble, puis régler par virement IBAN ou Wero.'}
+                            Votre facture a été envoyée par email avec le récapitulatif (vérifiez vos spams si besoin).
                         </p>
                     </div>
 

@@ -126,9 +126,38 @@ export const generateInvoice = async (order) => {
 
             // Simulate artificial loading UX just for the wow factor
             setTimeout(() => {
-                doc.save(`Facture_${formatId}.pdf`);
-                resolve(true);
-            }, 1000);
+                try {
+                    // 1. Téléchargement forcé sur l'appareil (comme avant, demandé par l'utilisateur)
+                    doc.save(`Facture_${formatId}.pdf`);
+
+                    // 2. Création de la preview pour ouverture / partage
+                    const pdfBlob = doc.output('blob');
+                    const blobUrl = URL.createObjectURL(pdfBlob);
+                    
+                    // 3. Essai de navigator.share sur mobile (très bonne UX)
+                    if (navigator.share) {
+                        const file = new File([pdfBlob], `Facture_${formatId}.pdf`, { type: 'application/pdf' });
+                        navigator.share({
+                            files: [file],
+                            title: `Facture_${formatId}`,
+                        }).catch((err) => {
+                            console.log("Share annulé ou erreur, fallback window.open", err);
+                            window.open(blobUrl, '_blank');
+                        });
+                    } else {
+                        // 4. Desktop fallback
+                        const newWindow = window.open(blobUrl, '_blank');
+                        if (!newWindow) {
+                            console.log("Popup bloquée, mais le fichier a été téléchargé.");
+                        }
+                    }
+                    resolve(true);
+                } catch (e) {
+                    console.error("Erreur preview PDF", e);
+                    doc.save(`Facture_${formatId}.pdf`);
+                    resolve(true);
+                }
+            }, 800);
         } catch (error) {
             reject(error);
         }
