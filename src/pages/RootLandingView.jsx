@@ -2,11 +2,70 @@ import React, { useMemo, useRef, useState, useEffect } from 'react';
 import { useGSAP } from '@gsap/react';
 import gsap from 'gsap';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
-import { ArrowRight, ArrowUp, MapPin, Hammer, Menu, X, ShoppingBag, Truck, ChevronRight, ChevronLeft, Star, MessageSquareHeart } from 'lucide-react';
+import { ArrowRight, ArrowUp, MapPin, Hammer, Menu, X, ShoppingBag, Truck, ChevronRight, ChevronLeft, Star, MessageSquareHeart, Plus, Minus } from 'lucide-react';
 import SEO from '../components/shared/SEO';
 import { SITE_URL, getProductPath } from '../utils/seoRoutes';
 import { applyHomeSEODefaultSelections } from '../utils/homeSEOSettings';
-import { MapContainer, TileLayer, Marker } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, useMap } from 'react-leaflet';
+
+const MapZoomControls = () => {
+    const map = useMap();
+    const [isDragEnabled, setIsDragEnabled] = React.useState(false);
+    const timeoutRef = React.useRef(null);
+
+    const enableDragging = () => {
+        map.dragging.enable();
+        setIsDragEnabled(true);
+        // Auto-disable after 5s of no interaction to give scroll priority back
+        clearTimeout(timeoutRef.current);
+        timeoutRef.current = setTimeout(() => {
+            map.dragging.disable();
+            setIsDragEnabled(false);
+        }, 5000);
+    };
+
+    React.useEffect(() => {
+        // Reset timeout on any map move (user is actively dragging)
+        const onMoveStart = () => {
+            if (!isDragEnabled) return;
+            clearTimeout(timeoutRef.current);
+        };
+        const onMoveEnd = () => {
+            if (!isDragEnabled) return;
+            clearTimeout(timeoutRef.current);
+            timeoutRef.current = setTimeout(() => {
+                map.dragging.disable();
+                setIsDragEnabled(false);
+            }, 5000);
+        };
+        map.on('movestart', onMoveStart);
+        map.on('moveend', onMoveEnd);
+        return () => {
+            map.off('movestart', onMoveStart);
+            map.off('moveend', onMoveEnd);
+            clearTimeout(timeoutRef.current);
+        };
+    }, [map, isDragEnabled]);
+
+    return (
+        <div className="absolute bottom-14 left-1.5 z-[1000] flex flex-col gap-1 md:bottom-16 md:left-2.5">
+            <button
+                onClick={(e) => { e.stopPropagation(); enableDragging(); map.zoomIn(); }}
+                className="flex h-8 w-8 items-center justify-center rounded-lg border border-white/15 bg-[#160f09]/80 text-white/80 shadow-lg backdrop-blur-md transition-all hover:bg-[#8a531c] hover:text-white active:scale-90"
+                aria-label="Zoom avant"
+            >
+                <Plus size={14} strokeWidth={2.5} />
+            </button>
+            <button
+                onClick={(e) => { e.stopPropagation(); enableDragging(); map.zoomOut(); }}
+                className="flex h-8 w-8 items-center justify-center rounded-lg border border-white/15 bg-[#160f09]/80 text-white/80 shadow-lg backdrop-blur-md transition-all hover:bg-[#8a531c] hover:text-white active:scale-90"
+                aria-label="Zoom arrière"
+            >
+                <Minus size={14} strokeWidth={2.5} />
+            </button>
+        </div>
+    );
+};
 import L from 'leaflet';
 
 gsap.registerPlugin(ScrollTrigger);
@@ -219,7 +278,7 @@ const RootLandingView = ({
                         setShowReviewOverlay(true);
                         hasAutoFlippedRef.current = true;
                     }
-                }, 2500);
+                }, 2000);
             } else {
                 clearTimeout(timeout);
             }
@@ -716,6 +775,9 @@ const RootLandingView = ({
                                         center={[49.1396, -0.3475]} 
                                         zoom={6} 
                                         scrollWheelZoom={false} 
+                                        doubleClickZoom={false}
+                                        touchZoom={false}
+                                        dragging={false}
                                         zoomControl={false}
                                         attributionControl={false}
                                         className="absolute inset-0 h-full w-full z-0 transition-all duration-700 hover:[filter:none] [filter:sepia(0.3)_contrast(0.95)_brightness(0.95)_hue-rotate(-10deg)]"
@@ -724,6 +786,7 @@ const RootLandingView = ({
                                             url="https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}"
                                         />
                                         <Marker position={[49.1396, -0.3475]} icon={customMarkerIcon} />
+                                        <MapZoomControls />
                                     </MapContainer>
                                     {/* Action Button */}
                                     <button
@@ -736,33 +799,33 @@ const RootLandingView = ({
                                 </div>
                                 
                                 {/* CUSTOM PLACECARD COVER (PREMIUM FLOATING DOUBLE-BEZEL) */}
-                                <div className={`pointer-events-auto absolute left-1.5 top-1.5 z-10 rounded-[1.2rem] border border-white/10 bg-white/[0.02] p-1.5 shadow-[0_8px_32px_rgba(0,0,0,0.5)] backdrop-blur-md transition-opacity duration-300 md:left-2.5 md:top-2.5 md:rounded-[1.4rem] md:p-2 [backface-visibility:hidden] [-webkit-backface-visibility:hidden] ${showReviewOverlay ? 'pointer-events-none opacity-0' : 'opacity-100'}`}>
-                                    <div className="flex w-[260px] flex-col rounded-[0.825rem] border border-white/5 bg-[#160f09] p-3.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] md:w-[280px] md:rounded-[0.9rem] md:p-4">
+                                <div className={`pointer-events-auto absolute left-1.5 top-1.5 z-10 rounded-[1rem] border border-white/10 bg-white/[0.02] p-1 shadow-[0_8px_32px_rgba(0,0,0,0.5)] backdrop-blur-md transition-opacity duration-300 md:left-2.5 md:top-2.5 md:rounded-[1.4rem] md:p-2 [backface-visibility:hidden] [-webkit-backface-visibility:hidden] ${showReviewOverlay ? 'pointer-events-none opacity-0' : 'opacity-100'}`}>
+                                    <div className="flex w-[220px] flex-col rounded-[0.75rem] border border-white/5 bg-[#160f09] p-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] md:w-[280px] md:rounded-[0.9rem] md:p-4">
                                         <div className="flex items-start justify-between">
                                             <div>
-                                                <h3 className="font-serif text-[17px] leading-tight text-[#f3dfbd] md:text-[19px]">Tous à Table</h3>
-                                                <p className="mt-0.5 text-[10px] leading-snug text-[#f3dfbd]/70 md:text-[11px]">Showroom d'ameublement ancien<br />346 Chem. de Fleury, 14123 Ifs</p>
+                                                <h3 className="font-serif text-[15px] leading-tight text-[#f3dfbd] md:text-[19px]">Tous à Table</h3>
+                                                <p className="mt-0.5 text-[9px] leading-snug text-[#f3dfbd]/70 md:text-[11px]">Showroom d'ameublement ancien<br />346 Chem. de Fleury, 14123 Ifs</p>
                                             </div>
                                             <a 
                                                 href="https://www.google.com/maps/dir/?api=1&destination=Tous+à+Table+made+in+Normandie,+Chemin+de+Fleury,+Ifs,+France"
                                                 target="_blank"
                                                 rel="noopener noreferrer"
                                                 title="Créer un itinéraire vers l'atelier"
-                                                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white/5 text-[#dba45f] transition-all hover:scale-110 hover:bg-[#dba45f] hover:text-[#160f09] active:scale-95"
+                                                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white/5 text-[#dba45f] transition-all hover:scale-110 hover:bg-[#dba45f] hover:text-[#160f09] active:scale-95 md:h-9 md:w-9"
                                             >
-                                                <MapPin size={16} />
+                                                <MapPin className="h-3.5 w-3.5 md:h-4 md:w-4" />
                                             </a>
                                         </div>
-                                        <div className="mt-2.5 flex items-center gap-2 border-t border-white/5 pt-2.5">
-                                            <span className="text-[11px] font-bold text-white">5,0</span>
+                                        <div className="mt-2 flex items-center gap-1.5 border-t border-white/5 pt-2 md:mt-2.5 md:gap-2 md:pt-2.5">
+                                            <span className="text-[10px] font-bold text-white md:text-[11px]">5,0</span>
                                             <div className="flex gap-0.5 text-[#dba45f]">
-                                                <Star size={10} fill="currentColor" />
-                                                <Star size={10} fill="currentColor" />
-                                                <Star size={10} fill="currentColor" />
-                                                <Star size={10} fill="currentColor" />
-                                                <Star size={10} fill="currentColor" />
+                                                <Star className="h-2 w-2 md:h-2.5 md:w-2.5" fill="currentColor" />
+                                                <Star className="h-2 w-2 md:h-2.5 md:w-2.5" fill="currentColor" />
+                                                <Star className="h-2 w-2 md:h-2.5 md:w-2.5" fill="currentColor" />
+                                                <Star className="h-2 w-2 md:h-2.5 md:w-2.5" fill="currentColor" />
+                                                <Star className="h-2 w-2 md:h-2.5 md:w-2.5" fill="currentColor" />
                                             </div>
-                                            <span className="text-[9.5px] text-stone-500">(10 avis Google)</span>
+                                            <span className="text-[8px] text-stone-500 md:text-[9.5px]">(10 avis Google)</span>
                                         </div>
                                     </div>
                                 </div>
