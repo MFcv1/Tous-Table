@@ -6,8 +6,22 @@ import { ArrowRight, ArrowUp, MapPin, Hammer, Menu, X, ShoppingBag, Truck, Chevr
 import SEO from '../components/shared/SEO';
 import { SITE_URL, getProductPath } from '../utils/seoRoutes';
 import { applyHomeSEODefaultSelections } from '../utils/homeSEOSettings';
+import { MapContainer, TileLayer, Marker } from 'react-leaflet';
+import L from 'leaflet';
 
 gsap.registerPlugin(ScrollTrigger);
+
+const customMarkerIcon = new L.DivIcon({
+    className: 'bg-transparent',
+    html: `<div style="position: relative; width: 32px; height: 32px;">
+             <svg viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg" style="filter: drop-shadow(0px 4px 6px rgba(0,0,0,0.5));">
+                <path fill="#EA4335" stroke="#b31412" stroke-width="0.5" d="M16,0C9.373,0,4,5.373,4,12c0,9 12,20 12,20s12-11 12-20C28,5.373,22.627,0,16,0z"/>
+                <circle fill="#711b15" cx="16" cy="11.5" r="4.5"/>
+             </svg>
+           </div>`,
+    iconSize: [32, 32],
+    iconAnchor: [16, 11],
+});
 
 const localCities = [
     { name: 'Ifs', x: 49, y: 62, primary: true },
@@ -205,7 +219,7 @@ const RootLandingView = ({
                         setShowReviewOverlay(true);
                         hasAutoFlippedRef.current = true;
                     }
-                }, 5000);
+                }, 2500);
             } else {
                 clearTimeout(timeout);
             }
@@ -698,14 +712,19 @@ const RootLandingView = ({
                                 
                                 {/* FRONT FACE : MAP */}
                                 <div className={`absolute inset-0 h-full w-full overflow-hidden rounded-[1rem] bg-[#160f09] text-white md:rounded-[1.2rem] [backface-visibility:hidden] [-webkit-backface-visibility:hidden] ${showReviewOverlay ? 'pointer-events-none' : ''}`}>
-                                    <iframe 
-                                        src="https://maps.google.com/maps?q=Tous%20%C3%A0%20Table%20made%20in%20Normandie,%20Chemin%20de%20Fleury,%20Ifs,%20France&t=&z=9&ie=UTF8&iwloc=&output=embed"
-                                        className="absolute left-[-250px] top-[-250px] h-[calc(100%+620px)] w-[calc(100%+500px)] max-w-none border-0 transition-all duration-700 hover:[filter:none] [filter:sepia(0.3)_contrast(0.95)_brightness(0.95)_hue-rotate(-10deg)]"
-                                        allowFullScreen=""
-                                        loading="lazy"
-                                        referrerPolicy="no-referrer-when-downgrade"
-                                        title="Carte interactive Tous à Table made in Normandie"
-                                    />
+                                    <MapContainer 
+                                        center={[49.1396, -0.3475]} 
+                                        zoom={6} 
+                                        scrollWheelZoom={false} 
+                                        zoomControl={false}
+                                        attributionControl={false}
+                                        className="absolute inset-0 h-full w-full z-0 transition-all duration-700 hover:[filter:none] [filter:sepia(0.3)_contrast(0.95)_brightness(0.95)_hue-rotate(-10deg)]"
+                                    >
+                                        <TileLayer
+                                            url="https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}"
+                                        />
+                                        <Marker position={[49.1396, -0.3475]} icon={customMarkerIcon} />
+                                    </MapContainer>
                                     {/* Action Button */}
                                     <button
                                         onClick={() => handleToggleReview(true)}
@@ -717,7 +736,7 @@ const RootLandingView = ({
                                 </div>
                                 
                                 {/* CUSTOM PLACECARD COVER (PREMIUM FLOATING DOUBLE-BEZEL) */}
-                                <div className={`pointer-events-auto absolute left-1.5 top-1.5 z-10 rounded-[1.2rem] border border-white/10 bg-white/[0.02] p-1.5 shadow-[0_8px_32px_rgba(0,0,0,0.5)] backdrop-blur-md transition-opacity duration-700 md:left-2.5 md:top-2.5 md:rounded-[1.4rem] md:p-2 [backface-visibility:hidden] [-webkit-backface-visibility:hidden] ${showReviewOverlay ? 'pointer-events-none opacity-0' : 'opacity-100'}`}>
+                                <div className={`pointer-events-auto absolute left-1.5 top-1.5 z-10 rounded-[1.2rem] border border-white/10 bg-white/[0.02] p-1.5 shadow-[0_8px_32px_rgba(0,0,0,0.5)] backdrop-blur-md transition-opacity duration-300 md:left-2.5 md:top-2.5 md:rounded-[1.4rem] md:p-2 [backface-visibility:hidden] [-webkit-backface-visibility:hidden] ${showReviewOverlay ? 'pointer-events-none opacity-0' : 'opacity-100'}`}>
                                     <div className="flex w-[260px] flex-col rounded-[0.825rem] border border-white/5 bg-[#160f09] p-3.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] md:w-[280px] md:rounded-[0.9rem] md:p-4">
                                         <div className="flex items-start justify-between">
                                             <div>
@@ -771,14 +790,27 @@ const RootLandingView = ({
                                         Les avis sur Google nous aident à faire découvrir nos meubles anciens restaurés à de nouvelles maisons. Merci pour votre soutien !
                                     </p>
                                     
-                                    <a
-                                        href="https://g.page/r/CepClsGcSHS2EBM/review"
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        className="inline-flex items-center gap-3 rounded-full bg-[#160f09] px-6 py-3.5 text-[10px] font-black uppercase tracking-[0.15em] text-[#f3dfbd] transition-transform hover:scale-105 active:scale-95 md:px-8 md:py-4 md:text-xs"
-                                    >
-                                        Écrire un avis Google
-                                    </a>
+                                    <div className="flex w-full max-w-[280px] flex-col gap-3">
+                                        <a
+                                            href="https://g.page/r/CepCisGcSHS2EBM/review"
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="inline-flex w-full items-center justify-center gap-3 rounded-full bg-[#160f09] px-6 py-3.5 text-[10px] font-black uppercase tracking-[0.15em] text-[#f3dfbd] transition-transform hover:scale-105 active:scale-95 md:px-8 md:py-4 md:text-xs"
+                                        >
+                                            Écrire un avis Google
+                                        </a>
+                                        <a
+                                            href="https://www.instagram.com/tous_a_table_made_in_normandie/?hl=fr"
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="inline-flex w-full items-center justify-center gap-2.5 rounded-full bg-gradient-to-tr from-[#f9ce34] via-[#ee2a7b] to-[#6228d7] px-6 py-3.5 text-[10px] font-black uppercase tracking-[0.15em] text-white shadow-md transition-all hover:scale-105 hover:shadow-lg hover:brightness-110 active:scale-95 md:px-8 md:py-4 md:text-xs"
+                                        >
+                                            <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+                                                <path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zM12 0C8.741 0 8.333.014 7.053.072 2.695.272.273 2.69.073 7.052.014 8.333 0 8.741 0 12c0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98C8.333 23.986 8.741 24 12 24c3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98C15.668.014 15.259 0 12 0zm0 5.838a6.162 6.162 0 100 12.324 6.162 6.162 0 000-12.324zM12 16a4 4 0 110-8 4 4 0 010 8zm6.406-11.845a1.44 1.44 0 100 2.881 1.44 1.44 0 000-2.881z"/>
+                                            </svg>
+                                            Suivez-nous
+                                        </a>
+                                    </div>
                                 </div>
                                 
                             </div>
