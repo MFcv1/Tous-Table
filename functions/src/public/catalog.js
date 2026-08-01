@@ -1,13 +1,16 @@
 const functions = require('firebase-functions/v1');
 const admin = require('firebase-admin');
+const { APP_ID } = require('../../helpers/config');
 
 const db = admin.firestore();
-const APP_ID = 'tat-made-in-normandie';
 const ALLOWED_ORIGINS = new Set([
     'https://tousatable-madeinnormandie.fr',
     'https://www.tousatable-madeinnormandie.fr',
     'https://tousatable-client.web.app',
     'https://tousatable-client.firebaseapp.com',
+    'https://sandboxtat.web.app',
+    'https://sandboxtat.firebaseapp.com',
+    // legacy old sandbox host (keep until fully retired)
     'https://tatmadeinnormandie.web.app',
     'https://tatmadeinnormandie.firebaseapp.com',
     'http://localhost:5173',

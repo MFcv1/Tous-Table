@@ -21,6 +21,8 @@ Ce fichier est le chef d'orchestre du projet. Lis-le en premier, puis va seuleme
 - Etat de readiness prod : lire `_DOCS/PROD_READINESS_STATUS.md`.
 - Securite, regles, risques : lire `_DOCS/SECURITE.md` et `firestore.rules`.
 - Architecture et donnees Firestore : lire `architecture_firestore_rules.md`, `migrationfirestore.md`, `migrationprodtosandbox.md`.
+- **Environnements prod vs sandbox (source de verite aout 2026)** : lire `_DOCS/SANDBOX_ARCHITECTURE_2026.md`.
+- Chantier catalogue live stock : `_DOCS/PLAN_LIVE_CATALOG_STOCK_AB.md` + handoff `_DOCS/HANDOFF_LIVE_STOCK_SANDBOX.md`.
 - Comptoir, produits affilies, tracking client, fiches detail avant Amazon : lire `_DOCS/COMPTOIR_PRODUCT_DETAIL_AUDIT.md`.
 - Import images admin mobilier/planches, formats mobiles, cases blanches : lire `_DOCS/IMAGE_UPLOAD_NORMALIZATION.md`.
 - Audits anciens : lire `_DOCS/AUDITS/` et `audit/` seulement si la tache concerne le sujet.

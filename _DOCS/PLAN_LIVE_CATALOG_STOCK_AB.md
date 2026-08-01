@@ -1,10 +1,122 @@
 # Plan d'implémentation — Catalogue live stock (Option A + B)
 
-> **Pour l'agent suivant :** exécuter **uniquement** ce plan, phase par phase.  
-> Ne pas élargir le scope (pas Stripe, pas SEO, pas analytics, pas refonte admin).  
-> Lecture obligatoire avant code : `AGENTS.md` (coûts Firebase, pas de deploy prod sans accord).  
-> **Sandbox / prod Firestore :** ne pas écrire en base prod sans validation explicite utilisateur.  
-> Implémentation = code + vérifs locales (`npm run build`). Tests manuels smoke = checklist en fin de plan (compte test / accord user).
+> **Pour Hermes / agent suivant :** exécuter **uniquement** ce plan, phase par phase.  
+> **Handoff conversation propre :** lire aussi `_DOCS/SANDBOX_ARCHITECTURE_2026.md` puis ce fichier.  
+> Ne pas élargir le scope (pas Stripe métier, pas SEO, pas analytics, pas refonte admin UI).  
+> Lecture obligatoire : `AGENTS.md` + sandbox doc ci-dessus.
+
+---
+
+## 0. Environnement de travail (OBLIGATOIRE)
+
+### 0.1 Prod vs Sandbox (août 2026)
+
+Source : `_DOCS/SANDBOX_ARCHITECTURE_2026.md` (+ `.firebaserc`).
+
+| | **PRODUCTION** | **SANDBOX (dev / tests)** |
+|--|----------------|---------------------------|
+| Projet Firebase | `tousatable-client` | `sandboxtat` |
+| Domaine | `tousatable-madeinnormandie.fr` | `sandboxtat.web.app` / `localhost` |
+| Alias `.firebaserc` | `prod` | `sandbox` (et éventuellement `default` selon machine — **vérifier**) |
+| Nœud catalogue Firestore | `artifacts/tat-made-in-normandie/...` | `artifacts/sandboxtat/...` |
+| Front env | `.env.prod` via `npm run build:prod` | `.env.local` (prioritaire Vite en `npm run dev`) |
+| Variable chemin data front | `VITE_APP_LOGICAL_NAME=tat-made-in-normandie` | `VITE_APP_LOGICAL_NAME=sandboxtat` |
+
+```
+┌─────────────────────┐         ┌─────────────────────┐
+│  PROD               │         │  SANDBOX            │
+│  tousatable-client  │  clone  │  sandboxtat         │
+│  artifacts/         │ ─────►  │  artifacts/         │
+│  tat-made-in-…      │ snapshot│  sandboxtat/        │
+└─────────────────────┘         └─────────────────────┘
+        ▲                                 ▲
+        │ build:prod                      │ npm run dev
+        │ .env.prod                       │ .env.local
+        └──────────── même code git ──────┘
+```
+
+**Règle d’or :** toute implémentation + tests smoke de CE plan se font sur **SANDBOX** (`npm run dev` + `.env.local` → projet `sandboxtat`).  
+**Interdit** sans accord explicite user : écrire Firestore prod, `firebase use prod` + deploy, `npm run build:prod` + deploy hosting/functions prod.
+
+### 0.2 Git — PAS de branche nommée « sandbox »
+
+Le conseil workflow (validé) :
+
+- **`main`** = code aligné prod / intouchable pour le daily dev.
+- **Pas** besoin d’une branche git « sandbox » : l’env est choisi par **`.env.*` + projet Firebase**, pas par le nom de branche.
+- **Oui** : une **feature branch par mission**.
+
+Pour CE chantier, l’agent DOIT commencer par :
+
+```bash
+git status
+git checkout main
+git pull   # si remote à jour et user OK
+git checkout -b feature/live-catalog-stock-ab
+```
+
+Ensuite coder / committer **uniquement** sur `feature/live-catalog-stock-ab`.  
+Merge → `main` **seulement** après validation user.  
+Deploy prod **jamais** dans ce plan sans phrase user claire (« déploie en prod »).
+
+Deploy sandbox hosting/functions : **uniquement** si user le demande, avec :
+
+```bash
+firebase use sandbox    # projet sandboxtat — vérifier le terminal
+# ou l'alias qui pointe vraiment sur sandboxtat
+npm run build           # PAS build:prod
+firebase deploy --only hosting,functions   # scope minimal demandé
+```
+
+Puis revenir : `firebase use` vers l’alias non-prod habituel.
+
+### 0.3 Docs env
+
+**Source de vérité sandbox :** `_DOCS/SANDBOX_ARCHITECTURE_2026.md` + `.firebaserc` + `.env.local` (ne jamais logger les secrets).
+
+Les anciens guides `environnement.md` / `REGLES_ENV.md` ont été **supprimés** (obsolètes).
+
+### 0.4 Prérequis techniques critiques avant Phase 1–3 (stock)
+
+Le front utilise :
+
+```js
+// src/firebase/config.js
+const appId = import.meta.env.VITE_APP_LOGICAL_NAME || 'tat-made-in-normandie';
+```
+
+Les Cloud Functions utilisent encore souvent un **hardcode** :
+
+```js
+// functions/helpers/config.js
+const APP_ID = 'tat-made-in-normandie';
+
+// functions/src/public/catalog.js
+const APP_ID = 'tat-made-in-normandie';
+```
+
+Et `getSiteUrl` ne mappe pas encore `sandboxtat` :
+
+```js
+urlMap = {
+  'tousatable-client': 'https://tousatable-madeinnormandie.fr',
+  'tatmadeinnormandie': 'https://tatmadeinnormandie.web.app'
+  // manquant: sandboxtat → https://sandboxtat.web.app
+}
+```
+
+**Conséquence :** si la sandbox stocke le catalogue sous `artifacts/sandboxtat` mais que les Functions déployées sur `sandboxtat` écrivent/lisent `artifacts/tat-made-in-normandie`, alors :
+
+- `createOrder` / `cancelOrderClient` / `publicCatalog` ciblent le **mauvais nœud**
+- les tests live stock sont **faux** ou cassés
+
+→ **Phase 0.5 (gate)** ci-dessous est **bloquante** avant le reste.
+
+Ne **jamais** logger les valeurs secrètes des `.env*`. Vérifier seulement :
+
+- `VITE_FIREBASE_PROJECT_ID` attendu sandbox = `sandboxtat`
+- `VITE_APP_LOGICAL_NAME` attendu sandbox = `sandboxtat`
+- En console navigateur dev : lectures `artifacts/sandboxtat/...`
 
 ---
 
@@ -16,606 +128,385 @@ Quand un **meuble unique** change de stock en base (`sold` / `stock`) suite à :
 2. annulation client (`cancelOrderClient`), ou  
 3. annulation admin (restore stock existant),
 
-alors :
+alors **sur SANDBOX** :
 
 | Surface | Comportement attendu |
 |---------|----------------------|
-| Visiteur déjà sur **galerie** ou **fiche produit** | UI mise à jour **en temps réel** (ordre de grandeur 1–3 s), sans F5 |
-| Nouvel arrivant / hard reload | Voit un catalogue **pas plus vieux** que le TTL cache restant ; après invalidation serveur, cold path plus frais |
-| Admin back-office | Comportement live **inchangé** (déjà OK) |
-| Tracking analytics / sessions | **Aucun changement** de comportement ni de schémas |
+| Visiteur déjà sur **galerie** ou **fiche produit** | UI mise à jour **en temps réel** (1–3 s), sans F5 |
+| Nouvel arrivant / hard reload | Catalogue plus frais grâce invalidation cache Function (+ TTL HTTP modéré) |
+| Admin back-office | Live inchangé / non régressé |
+| Tracking analytics / sessions | **Aucun** changement de code analytics |
 | Grille filtres `published` / catégories | **Inchangés** |
+| Base **prod** | **Non touchée** |
 
-**Hors scope explicite :**
+**Hors scope :**
 
-- Réactiver ou « réparer » Stripe (code mort / non utilisé en parcours réel).
-- Live permanent sur home + comptoir + 3 collections pour tous les visiteurs.
-- Refonte annulation admin en Cloud Function (nice-to-have phase optionnelle, pas bloquant si A est en place).
-- Mot de passe oublié / UX email non vérifié (autre chantier).
+- Réparer / réactiver Stripe parcours client (non utilisé en réel ; virement only).
+- Live permanent home + comptoir + 3 collections pour tous.
+- Refonte annulation admin en CF (optionnel plus tard).
+- Mot de passe oublié / UX email verify.
+- Deploy prod.
+- Refonte dashboard multi-deploy Next (hors sujet).
+
+**Parcours paiement réel à tester :** `paymentMethod` deferred / manual (virement) uniquement.
 
 ---
 
-## 2. Contexte technique actuel (ne pas réinventer)
+## 2. Contexte technique catalogue (ne pas réinventer)
 
-### 2.1 Fichiers sources de vérité
+### 2.1 Fichiers
 
 | Fichier | Rôle |
 |---------|------|
-| `src/App.jsx` | Charge catalogue public ; admin = `onSnapshot` ; public = **seulement** `publicCatalog` HTTP si succès |
-| `functions/src/public/catalog.js` | Endpoint HTTP + cache mémoire process `CACHE_TTL_MS = 5 min` + `Cache-Control` |
-| `functions/src/commerce/createOrder.js` | Deferred : décrémente stock + `sold` ; **pas** de `stockReserved` |
-| `functions/src/commerce/cancelOrder.js` | Restore **seulement si** `item.sold \|\| order.stockReserved` |
-| `src/features/admin/AdminOrders.jsx` | Cancel admin : restore client-side puis `deleteDoc` order |
-| `src/pages/GalleryView.jsx` | Filtre `item.status === 'published'` (important : le live brut OK) |
-| `src/components/shared/AnalyticsProvider.jsx` | **Indépendant** du catalogue ; ignore `isAdmin` |
+| `src/App.jsx` | Public = `publicCatalog` HTTP si OK ; admin = `onSnapshot` |
+| `src/firebase/config.js` | `appId` depuis `VITE_APP_LOGICAL_NAME` |
+| `functions/src/public/catalog.js` | HTTP catalog + cache mémoire 5 min — **APP_ID hardcodé** |
+| `functions/helpers/config.js` | `APP_ID` hardcodé + `getSiteUrl` |
+| `functions/src/commerce/createOrder.js` | Deferred stock ; pas `stockReserved` |
+| `functions/src/commerce/cancelOrder.js` | Restore si `sold \|\| stockReserved` seulement |
+| `src/features/admin/AdminOrders.jsx` | Cancel admin client-side + delete order — **appId hardcodé** `tat-made-in-normandie` (à aligner sandbox) |
+| `src/pages/GalleryView.jsx` | Filtre `status === 'published'` |
+| `src/components/shared/AnalyticsProvider.jsx` | Indépendant catalogue |
 
-### 2.2 Bug / dette liés (à traiter dans ce plan)
+### 2.2 Dettes
 
 | ID | Problème | Phase |
 |----|----------|-------|
-| D1 | Public : pas de live → stale vendu/dispo | Phase 2 (A) |
-| D2 | Course possible : HTTP tardif ré-écrase un snapshot live | Phase 2 (garde-fou) |
-| D3 | Cache Function non invalidé après mutate stock | Phase 3 (B) |
-| D4 | `cancelOrderClient` peut **ne pas** restore planches multi-stock (sold=false, pas stockReserved) | Phase 1 |
-| D5 | Admin cancel n’invalide pas le cache HTTP (visiteurs en live couverts par A) | Accepté ; B partiel |
+| D0 | APP_ID Functions / AdminOrders / catalog hardcodé prod-path → casse sandbox `sandboxtat` | **0.5** |
+| D1 | Public pas live → stale vendu/dispo | 2 |
+| D2 | HTTP tardif peut ré-écraser live | 2 |
+| D3 | Cache Function non invalidé après mutate | 3 |
+| D4 | Cancel client restore incomplet (planches multi) | 1 |
+| D5 | Admin cancel n’invalide pas cache HTTP | Accepté si A OK |
+| D6 | Docs env historiques (`tatmadeinnormandie`) vs `sandboxtat` | Doc only |
 
-### 2.3 Architecture cible (ne pas dévier)
+### 2.3 Architecture cible stock UI
 
 ```
-BOOT (tous)
-  └─ publicCatalog HTTP (rapide, preloader inchangé)
+BOOT
+  └─ publicCatalog HTTP (preloader inchangé)
        │
        ▼
-HANDOFF live (public, UNIQUEMENT view gallery|detail)
-  └─ onSnapshot collection ACTIVE seulement
-       furniture XOR cutting_boards
-       (pas affiliate sauf si déjà requis ailleurs ; NE PAS élargir home)
+HANDOFF live public UNIQUEMENT view === gallery | detail
+  └─ onSnapshot furniture XOR cutting_boards
        │
        ▼
-Garde-fou : applyPublicCatalog ne réécrit plus les collections live
+Garde-fou : applyPublicCatalog n'écrase plus une collection live
        │
-MUTATE stock (createOrder / cancelOrderClient)
-  └─ Firestore update (source de vérité)
-  └─ invalidatePublicCatalogCache() best-effort même module
+MUTATE (createOrder deferred / cancelOrderClient) sur bon APP_ID
+  └─ Firestore sold/stock
+  └─ invalidatePublicCatalogCache()
 ```
-
-**Admin (`isAdmin === true`) :** conserver le chemin live actuel (collections selon `activePublicRealtimeCollectionsKey` admin). Ne pas le casser.
 
 ---
 
-## 3. Règles anti-égarement (l’agent DOIT respecter)
+## 3. Règles anti-égarement
 
-1. **Ne pas** supprimer `publicCatalog` ni le preloader / `warmupStartupCatalogImagesForRoute`.
-2. **Ne pas** mettre tout visiteur en `onSnapshot` sur home + shop + affiliate en permanence « pour simplifier ».
-3. **Ne pas** toucher `AnalyticsProvider`, `AdminAnalytics`, rules `analytics_sessions`.
-4. **Ne pas** déployer functions/hosting sans accord user explicite.
-5. **Ne pas** écrire dans Firestore prod pour « tester » sans accord.
-6. **Ne pas** mélanger un refactor Stripe / webhook dans ce chantier.
-7. Live public = **gallery + detail** uniquement (stock critique sous les yeux).  
-   - Si `activePublicRealtimeCollectionsKey` inclut home aujourd’hui, **ne pas** brancher le live public sur home dans ce plan (coût). Home reste cache-only.
-8. Toute écriture stock reste **serveur** (CF) pour client ; admin cancel existant client-side artisan OK.
-9. Documenter en bas de ce fichier (section Journal) ce qui a été fait / testé / reporté.
+1. Travailler sur branche `feature/live-catalog-stock-ab` (créer si absente).  
+2. Tests runtime = **sandbox only**.  
+3. Ne pas supprimer `publicCatalog` / preloader images.  
+4. Live public = **gallery + detail** only (pas home).  
+5. Ne pas toucher Analytics.  
+6. Pas de deploy prod. Deploy sandbox seulement sur demande user.  
+7. Ne pas logger secrets `.env`.  
+8. Ne pas « simplifier » en remettant full `onSnapshot` partout.  
+9. Stripe : ignorer pour recettes métier ; ne pas réécrire webhooks.  
+10. Remplir le **Journal** (section 10) à chaque phase.  
+11. Si D0 non résolu : **STOP** — ne pas implémenter A/B sur un APP_ID faux.
 
 ---
 
-## 4. Phases d’implémentation
+## 4. Phases
 
-### Phase 0 — Freeze scope + baseline (lecture seule)
-
-**Objectif :** prouver l’état avant patch, sans modifier le runtime métier.
+### Phase 0 — Baseline git + lecture
 
 **Actions :**
 
-1. Relire les zones exactes :
-   - `src/App.jsx` : `applyPublicCatalog`, effet catalogue ~L572–666, `activePublicRealtimeCollectionsKey` ~L320–333
-   - `functions/src/public/catalog.js` (entier)
-   - `functions/src/commerce/cancelOrder.js` (entier)
-   - `functions/src/commerce/createOrder.js` (bloc deferred + exports)
-   - `functions/index.js` (exports)
-2. Noter le comportement actuel en 3 lignes dans le Journal (section 9).
-3. Lancer baseline locale :
+```bash
+git status
+git checkout main   # si besoin
+git checkout -b feature/live-catalog-stock-ab   # si branche absente
+```
+
+1. Lire ce plan + `_DOCS/SANDBOX_ARCHITECTURE_2026.md`.  
+2. Confirmer sans dump secret : `npm run dev` charge bien sandbox (projectId / logical name).  
+3. `npm run build` baseline.  
+4. Journal : 3 lignes état initial.
+
+**Done :** branche feature active, build OK, env sandbox confirmé.
+
+---
+
+### Phase 0.5 — Gate APP_ID multi-env (BLOQUANT SANDBOX)
+
+**Objectif :** un seul mécanisme d’`APP_ID` côté Functions + chemins admin alignés sandbox/prod.
+
+**Fichiers autorisés cette phase :**
+
+- `functions/helpers/config.js`
+- `functions/src/public/catalog.js` (supprimer hardcode local, importer helper)
+- `src/features/admin/AdminOrders.jsx` (remplacer appId hardcodé par import `appId` depuis `src/firebase/config.js`)
+- éventuellement autres hardcodes `tat-made-in-normandie` **dans le chemin critique stock** découverts par search — **scope stock only**, pas rewrite global repo
+
+**Comportement cible `functions/helpers/config.js` :**
+
+```js
+function resolveAppId() {
+  // 1. env explicit (functions config / .env functions si présent)
+  if (process.env.APP_LOGICAL_NAME) return process.env.APP_LOGICAL_NAME;
+  if (process.env.VITE_APP_LOGICAL_NAME) return process.env.VITE_APP_LOGICAL_NAME;
+  // 2. mapping projet Firebase
+  const projectId = process.env.GCLOUD_PROJECT || process.env.GCP_PROJECT || '';
+  const map = {
+    'tousatable-client': 'tat-made-in-normandie',
+    'sandboxtat': 'sandboxtat',
+    // legacy old sandbox project if still used anywhere:
+    'tatmadeinnormandie': 'tat-made-in-normandie', // ou tat-sandbox selon données réelles — VÉRIFIER
+  };
+  if (map[projectId]) return map[projectId];
+  return 'tat-made-in-normandie';
+}
+const APP_ID = resolveAppId();
+```
+
+`getSiteUrl` : ajouter `'sandboxtat': 'https://sandboxtat.web.app'`.
+
+`catalog.js` : `const { APP_ID } = require('../../helpers/config');` (ajuster chemin relatif réel) — **un seul** endroit de vérité.
+
+**AdminOrders.jsx :**  
+Aujourd’hui `const appId = 'tat-made-in-normandie';` → utiliser `import { appId } from '../../firebase/config'` (chemin relatif exact selon fichier).
+
+**Vérifs Phase 0.5 :**
+
+| # | Test | Attendu |
+|---|------|---------|
+| 0.5.1 | Search `tat-made-in-normandie` dans `functions/src/public` + `commerce` + `AdminOrders` | Plus de hardcode chemin catalogue orphelin |
+| 0.5.2 | `npm run dev` + lecture galerie | Items chargés depuis `artifacts/sandboxtat/...` |
+| 0.5.3 | Si functions locales/emul ou déjà déployées sandbox | `publicCatalog` renvoie meubles sandbox |
+| 0.5.4 | Build front | OK |
+
+**Note deploy functions sandbox :** pour que `createOrder` utilise le bon APP_ID en réel, il faudra **déployer les functions sur `sandboxtat`** quand user OK. En attendant, le front live (Phase 2) peut déjà être testé via listeners Firestore directs ; les CF restent à aligner pour recettes commande/cancel.
+
+**Done 0.5 :** chemins alignés ; journal mis à jour.
+
+**Commit :** `fix(config): resolve APP_ID for sandboxtat vs prod`
+
+---
+
+### Phase 1 — Restore stock `cancelOrderClient`
+
+**Fichier :** `functions/src/commerce/cancelOrder.js`
+
+- Toujours restaurer depuis `order.items` (qty + collection).  
+- Meuble : `stock=1`, `sold=false`, clear `soldAt`/`buyerId`.  
+- Planche : `stock += qty`, `sold = restored<=0`.  
+- Retirer le gate unique `if (sold || stockReserved)`.  
+- `stockReserved: false` sur order.  
+- Ownership / 7j / shipped : inchangés.
+
+**Tests (sandbox, après functions déployées sandbox ou emulator) :**
+
+| # | Scénario | Attendu |
+|---|----------|---------|
+| 1.1 | Cancel meuble unique | stock 1, sold false |
+| 1.2 | Cancel planche multi | stock +qty |
+| 1.3 | Autre user | denied |
+| 1.4 | shipped | refused |
+
+**Commit :** `fix(commerce): always restore stock on client cancel`
+
+---
+
+### Phase 2 — Option A live public gallery/detail + anti-stale
+
+**Fichier :** `src/App.jsx`
+
+1. Bootstrap `publicCatalog` **conservé**.  
+2. Si `!isAdmin && (view==='gallery'||view==='detail')` → `onSnapshot` collection active only.  
+3. Admin : live actuel.  
+4. Home / shop / checkout : **pas** de nouveau live catalogue stock.  
+5. `liveCollectionsRef` : `applyPublicCatalog` n’écrase pas une collection live.  
+6. Cleanup unsub hors gallery/detail.  
+7. Shape `{ id, collectionName, ... }` + `sortByCreatedAtDesc`.
+
+**Pattern interdit :**
+
+```js
+fetch(publicCatalog).catch(() => subscribeOnlyOnFailure)
+```
+
+**Pattern cible public gallery/detail :** bootstrap HTTP + subscribe live en parallèle, avec garde-fou stale.
+
+**Recettes UI (2 navigateurs, sandbox) :**
+
+| # | Scénario | Attendu |
+|---|----------|---------|
+| 2.1 | A galerie ; B commande virement (si CF OK) ou admin mark sold | A voit Vendu sans F5 |
+| 2.2 | Cancel → re-dispo | sans F5 |
+| 2.3 | Home only | pas de listener furniture durable |
+| 2.4 | Switch meubles/planches | unsub/sub correct |
+| 2.5 | HTTP late | ne ramène pas stale |
+| 2.6 | Filtres published | OK |
+| 2.7 | Analytics admin | pas de régression code |
+
+**Commit :** `feat(catalog): live stock on public gallery/detail`
+
+---
+
+### Phase 3 — Option B invalidate cache publicCatalog
+
+**Fichiers :** `functions/src/public/catalog.js`, `createOrder.js`, `cancelOrder.js`
+
+- `exports.invalidatePublicCatalogCache = ...`  
+- Appel après mutate stock réussi.  
+- Pas de require circulaire catalog → commerce.  
+- Headers recommandés : `max-age=60, s-maxage=120, stale-while-revalidate=60` (atelier).  
+- Multi-instance = best-effort ; A reste la vérité session ouverte.
+
+**Commit :** `fix(catalog): invalidate publicCatalog cache after stock mutations`
+
+---
+
+### Phase 4 — Optionnel `stockReserved: true` sur deferred
+
+Dans `createOrder` deferred order payload. Redondant si Phase 1 OK.
+
+---
+
+### Phase 5 — Vérifs + docs
 
 ```bash
 npm run build
 ```
 
-**Done phase 0 :** build OK ; agent a les line anchors à jour (re-grep si drift).
-
-**Ne pas committer** si rien n’a changé.
-
----
-
-### Phase 1 — Restore stock annulation client (correctness base)
-
-**Objectif :** si l’UI devient live, la base doit déjà être juste. Fix `cancelOrderClient` pour **toujours** restaurer le stock des `order.items`, pas seulement si `sold || stockReserved`.
-
-**Fichiers :**
-
-- Modify : `functions/src/commerce/cancelOrder.js`
-- (Optionnel doc) Journal section 9
-
-**Comportement cible de la transaction :**
-
-1. Auth + ownership + statuts non annulables + délai 7j : **inchangés**.
-2. Pour chaque item de `orderData.items` :
-   - `itemId = item.originalId || item.id`
-   - `col = item.collectionName || item.collection || 'furniture'`
-   - Si doc existe :
-     - `qty = Number(item.quantity) || 1`
-     - Si `col === 'furniture'` : `stock = 1`, `sold = false`, clear `soldAt`, clear `buyerId`
-     - Sinon (ex. `cutting_boards`) : `stock = currentStock + qty`, `sold = (newStock === 0)` **ou** forcer `sold: false` si newStock > 0, clear buyer fields si plus sold
-3. **Retirer** la condition `if (itemData.sold || orderData.stockReserved)` comme gate unique du restore.  
-   Remplacer par : restore **toujours** pour items présents (idempotent autant que possible).
-4. Mettre `stockReserved: false` sur l’order si le champ existe.
-5. Status order → `cancelled_by_client` comme aujourd’hui.
-
-**Idempotence / sécurité :**
-
-- Ne pas double-ajouter le stock si status déjà `cancelled_by_client` (déjà bloqué en tête).
-- Si item introuvable : log + continue (ne pas fail toute la commande si un id legacy manque) — **même esprit** qu’aujourd’hui.
-
-**Pseudo-code cible (référence, pas copy aveugle si fichier a drift) :**
-
-```js
-// Après checks ownership / status / 7 days
-for (const item of orderData.items || []) {
-  const itemId = item.originalId || item.id;
-  const col = item.collectionName || item.collection || 'furniture';
-  if (!itemId) continue;
-  const itemRef = db.doc(`artifacts/${APP_ID}/public/data/${col}/${itemId}`);
-  const itemSnap = await transaction.get(itemRef);
-  if (!itemSnap.exists) continue;
-  const itemData = itemSnap.data();
-  const qty = Number(item.quantity) || 1;
-  const currentStock = itemData.stock !== undefined ? Number(itemData.stock) : 0;
-  if (col === 'furniture') {
-    transaction.update(itemRef, {
-      stock: 1,
-      sold: false,
-      soldAt: admin.firestore.FieldValue.delete(),
-      buyerId: admin.firestore.FieldValue.delete(),
-    });
-  } else {
-    const restored = currentStock + qty;
-    transaction.update(itemRef, {
-      stock: restored,
-      sold: restored <= 0,
-      ...(restored > 0 ? {
-        soldAt: admin.firestore.FieldValue.delete(),
-        buyerId: admin.firestore.FieldValue.delete(),
-      } : {}),
-    });
-  }
-}
-transaction.update(orderRef, {
-  status: 'cancelled_by_client',
-  cancelledAt: admin.firestore.FieldValue.serverTimestamp(),
-  clientNote: "Annulée par l'acheteur",
-  stockReserved: false,
-});
-```
-
-**Tests phase 1 (logique / revue code si pas d’emulateur) :**
-
-| # | Scénario | Attendu |
-|---|----------|---------|
-| 1.1 | Meuble `sold:true` stock 0, order deferred | Après cancel → stock 1, sold false |
-| 1.2 | Planche stock 4→3 à la commande (sold false), cancel | stock revient 4 |
-| 1.3 | Order d’un autre user | permission-denied, stock inchangé |
-| 1.4 | Status shipped | failed-precondition |
-| 1.5 | Double cancel | 2e appel refuse |
-
-**Done phase 1 :** code review + (si possible) test emulator/functions ; **pas de deploy** sans ordre user.
-
-**Commit suggéré (si user demande commit) :**  
-`fix(commerce): always restore stock on client cancel`
+- Note courte dans `_DOCS/ANALYTICS_RELIABILITY.md` : live public **gallery/detail only** justifié stock critique (coûts).  
+- Mettre à jour Journal.  
+- **Ne pas** merge main / deploy prod sans user.  
+- Proposer à l’user : merge PR + éventuellement deploy functions+hosting **sandbox** pour recettes E2E.
 
 ---
 
-### Phase 2 — Option A : live public gallery/detail + anti-stale
-
-**Objectif :** après boot `publicCatalog`, brancher le live Firestore pour le public **uniquement** sur `gallery` et `detail`.
-
-**Fichier principal :** `src/App.jsx`
-
-#### 2.1 Clarifier quand le public a le droit au live
-
-Introduire une clé ou condition explicite, ex. :
-
-```js
-const publicLiveStockEnabled =
-  !isAdmin && (view === 'gallery' || view === 'detail');
-```
-
-Collections live public :
-
-- `gallery` + collection meubles → `furniture` only  
-- `gallery` + planches → `cutting_boards` only  
-- `detail` → collection du produit (`furniture` **ou** `cutting_boards` selon item) — **pas** forcer affiliate live ici pour le stock
-
-**Ne pas** activer live public pour : `home`, `shop`, `checkout`, `my-orders`, `about`, etc.
-
-Admin : garder logique actuelle (`view === 'admin'` → furniture|boards|affiliate).
-
-#### 2.2 Flux d’effet catalogue (remplace le branchement `if (!isAdmin) fetch only`)
-
-Ordre imposé :
+## 5. Ordre imposé
 
 ```
-1) Si collections actives vides → no-op cleanup
-2) Toujours permettre un bootstrap publicCatalog UNE FOIS au mount app
-   (déjà en place via fetchPublicCatalogFallback / preloader)
-3) Si isAdmin → subscribeToPublicCollections() comme aujourd’hui
-4) Si publicLiveStockEnabled → subscribe UNIQUEMENT aux collections stock
-   (furniture et/ou cutting_boards), PAS réintroduire affiliate sauf besoin detail shop
-5) Sinon public hors gallery/detail → PAS de nouveau listener ;
-   données restent celles du dernier catalog / state
+0 git branch + baseline
+0.5 APP_ID sandbox gate          ← BLOQUANT
+1 cancel restore
+2 live UI A + anti-stale
+3 invalidate B
+4 stockReserved deferred (opt)
+5 build + docs + journal
 ```
-
-**Implémentation recommandée (éviter double fetch infini) :**
-
-- Garder le fetch HTTP bootstrap existant (preloader / premier effet).
-- Séparer clairement :
-  - effet **bootstrap HTTP** (une fois / dépendances stables)
-  - effet **subscriptions live** (dépend `isAdmin`, `view`, collection active, `selectedItemId`)
-
-Si l’agent garde un seul `useEffect`, il DOIT :
-
-- appeler `fetchPublicCatalog` pour public **sans** `return` avant d’avoir branché le live quand `publicLiveStockEnabled`
-- pattern interdit actuel :
-
-```js
-// INTERDIT de laisser tel quel pour le public :
-fetch(...).catch(() => subscribe...)  // live seulement si HTTP fail
-```
-
-- pattern cible public gallery/detail :
-
-```js
-// Bootstrap HTTP (fire-and-forget, une fois)
-fetchPublicCatalogFallback(...)
-// + live
-return subscribeToPublicCollections()
-```
-
-#### 2.3 Garde-fou anti-course (OBLIGATOIRE)
-
-Problème : HTTP lent après snapshot live → `applyPublicCatalog` remet du stale.
-
-**Mécanisme minimal :**
-
-```js
-// refs
-const liveCollectionsRef = useRef(new Set()); // 'furniture' | 'cutting_boards' | ...
-
-// dans subscribe onSnapshot furniture :
-liveCollectionsRef.current.add('furniture');
-
-// cleanup unsub :
-liveCollectionsRef.current.delete('furniture');
-
-// dans applyPublicCatalog :
-const catalogPayload = normalizePublicCatalogPayload(collections);
-if (!liveCollectionsRef.current.has('furniture')) {
-  setItems(catalogPayload.items);
-}
-if (!liveCollectionsRef.current.has('cutting_boards')) {
-  setBoardItems(catalogPayload.boardItems);
-}
-// affiliate : même logique si un jour live ; sinon toujours apply published filter
-setAffiliateProducts(catalogPayload.affiliateProducts);
-// resolved flags : ne pas marquer false les collections live
-```
-
-**Règle :** une collection en live n’est plus jamais écrasée par HTTP tant que le listener est actif.
-
-#### 2.4 Cohérence tri / shape
-
-- Snapshot doit continuer à mapper :
-
-```js
-{ id, collectionName: 'furniture'|'cutting_boards', ...data }
-```
-
-- Même `sortByCreatedAtDesc` que l’existant.
-- `GalleryView` filtre déjà `status === 'published'` → ne pas re-filtrer agressivement dans App sauf si bug visible.
-
-#### 2.5 Cleanup
-
-- Unsub tous les listeners à unmount / changement de collection / sortie gallery|detail.
-- Ne pas laisser un listener furniture actif après navigation vers `about` (coût).
-
-#### 2.6 Tests / scénarios phase 2 (manuels prioritaires)
-
-Prérequis : 2 navigateurs ou 1 normal + 1 fenêtre privée. **Sans écrire en prod** si user interdit : valider d’abord par revue + simulation state en dev si emulator dispo.
-
-| # | Scénario | Attendu |
-|---|----------|---------|
-| 2.1 | Visiteur A sur galerie meubles ; admin marque vendu (ou commande) | Carte passe « Vendu » sans F5 chez A |
-| 2.2 | Visiteur A sur galerie ; cancel remet dispo | « Vendu » disparaît / prix reviens sans F5 |
-| 2.3 | Visiteur sur **home** seulement | Pas de listener furniture permanent (vérifier Network/Firestore usage ou logs) ; pas de régression affichage |
-| 2.4 | Switch meubles → planches | Unsub furniture, sub boards ; pas de fuite listener |
-| 2.5 | Sortie gallery → about | Unsub stock |
-| 2.6 | HTTP catalog répond après live | State live **non** réécrasé (stale vendu ne revient pas) |
-| 2.7 | Admin liste items | Toujours live ; mark sold/available OK |
-| 2.8 | Filtres catégorie / published | Inchangés |
-| 2.9 | Analytics admin | Sessions toujours listées ; pas d’erreur console liée catalog |
-| 2.10 | Deep link fiche produit | Detail s’ouvre ; sold suit le live |
-
-**Done phase 2 :** build OK + scénarios 2.1–2.6 validés en dev (ou documentés bloqués si pas d’accès données).
-
-**Commit suggéré :**  
-`feat(catalog): live stock on public gallery/detail after catalog bootstrap`
 
 ---
 
-### Phase 3 — Option B : invalidation cache `publicCatalog`
+## 6. Fichiers autorisés / interdits
 
-**Objectif :** best-effort fresher cold loads après mutate stock.
+**Autorisés :**  
+`src/App.jsx`, `src/firebase/config.js` (si besoin read-only check), `src/features/admin/AdminOrders.jsx` (appId only),  
+`functions/helpers/config.js`, `functions/src/public/catalog.js`,  
+`functions/src/commerce/cancelOrder.js`, `functions/src/commerce/createOrder.js`,  
+`functions/index.js` (si besoin),  
+`_DOCS/PLAN_LIVE_CATALOG_STOCK_AB.md`, `_DOCS/ANALYTICS_RELIABILITY.md`,  
+`_DOCS/SANDBOX_ARCHITECTURE_2026.md` (corrections factuelles mineures OK).
 
-**Fichiers :**
-
-- Modify : `functions/src/public/catalog.js`
-- Modify : `functions/src/commerce/createOrder.js` (après succès deferred + éventuellement stripe_elements reservation si code restant)
-- Modify : `functions/src/commerce/cancelOrder.js` (après succès transaction)
-- Modify : `functions/index.js` **seulement si** besoin d’exporter partagé (préférer require relatif du module catalog)
-
-#### 3.1 API cache
-
-Dans `catalog.js` :
-
-```js
-function invalidatePublicCatalogCache(reason = 'unspecified') {
-  cachedCatalog = null;
-  cachedAt = 0;
-  // ne pas toucher inflightCatalogRead en cours de façon unsafe :
-  // laisser inflight finir ; prochain read verra cachedAt=0 et pourra relire
-  // si race : acceptable best-effort
-  console.log('publicCatalog cache invalidated:', reason);
-}
-
-module.exports = {
-  publicCatalog: exports.publicCatalog, // adapter au style du fichier
-  invalidatePublicCatalogCache,
-};
-```
-
-**Attention style module :** le fichier utilise aujourd’hui `exports.publicCatalog = ...`.  
-Préférer :
-
-```js
-exports.invalidatePublicCatalogCache = () => { ... };
-exports.publicCatalog = ...
-```
-
-Et depuis commerce :
-
-```js
-const { invalidatePublicCatalogCache } = require('../public/catalog');
-// après succès mutate stock :
-try { invalidatePublicCatalogCache('createOrder:deferred'); } catch (_) {}
-```
-
-#### 3.2 Où appeler
-
-| Hook | Quand |
-|------|--------|
-| `createOrder` deferred | Après transaction succès (stock posé) |
-| `createOrder` stripe_elements | Après réservation stock (si conservé) |
-| `cancelOrderClient` | Après transaction succès |
-| Restore PI fail dans createOrder | Après restore stock |
-
-**Ne pas** appeler depuis le front (inutile / non exposé).
-
-#### 3.3 Limites à documenter (ne pas promettre l’impossible)
-
-- Cache mémoire = **par instance** Cloud Function. Multi-instances → invalidation non globale.  
-  **Mitigation :** A couvre les sessions ouvertes ; B améliore une partie des cold starts.
-- `Cache-Control` navigateur/CDN peut encore servir une réponse HTTP un moment.  
-  **Option oneshot minimale B1 :** baisser à `max-age=60, s-maxage=60` **ou** garder 300 et s’appuyer sur A.  
-  **Recommandation plan :** baisser modérément `max-age=60, s-maxage=120, stale-while-revalidate=60` pour stock atelier — **ne pas** mettre `no-store` (coût). Si user préfère coût min, laisser headers et faire seulement invalidate mémoire.
-
-#### 3.4 Admin cancel client-side
-
-N’appelle pas B. Acceptable : visiteurs en gallery live voient via A.  
-Phase 3bis optionnelle (hors oneshot critique) : CF `cancelOrderAdmin` + invalidate.
-
-**Tests phase 3 :**
-
-| # | Scénario | Attendu |
-|---|----------|---------|
-| 3.1 | Après deploy functions : createOrder puis GET publicCatalog sur instance chaude | `generatedAt` récent / pas l’ancienne photo si même instance |
-| 3.2 | Code review : require circular ? | `catalog.js` ne doit pas require `createOrder` |
-| 3.3 | Build functions syntax | `node -c` ou deploy dry / require local |
-
-**Done phase 3 :** invalidation branchée sans dépendance circulaire ; headers ajustés selon décision ci-dessus.
-
-**Commit suggéré :**  
-`fix(catalog): invalidate publicCatalog cache after stock mutations`
+**Interdits :** Analytics*, SEO, firestore.rules rewrite large, Stripe webhook rewrite, secrets dans le chat, deploy prod.
 
 ---
 
-### Phase 4 — Durcissement deferred (optionnel mais recommandé si temps)
+## 7. Recettes bout-en-bout (sandbox)
 
-**Objectif :** aligner deferred sur le modèle « stock réservé ».
+Prérequis : Phase 0.5 OK + (idéalement) functions déployées sur `sandboxtat`.
 
-**Fichier :** `functions/src/commerce/createOrder.js`
+### R1 — Virement → vendu live  
+Galerie A + commande deferred B → A voit vendu sans F5 ; B voit commande Mes commandes.
 
-- Sur order deferred set : `stockReserved: true` (comme stripe_elements).
-- Redondant avec Phase 1 restore toujours, mais clarifie l’intent et aide d’éventuels webhooks futurs.
+### R2 — Cancel client → re-dispo live  
+Cancel B → A voit dispo ; Firestore `sold:false` `stock:1`.
 
-**Ne pas** toucher au parcours Stripe au-delà de ce flag si non nécessaire.
+### R3 — Cancel admin  
+AdminOrders restore → galerie live OK.
 
-**Done :** flag présent ; cancel + create cohérents.
+### R4 — Tracking  
+Parcours visiteur non-admin : pas d’erreur ; code analytics non modifié (diff git).
 
----
+### R5 — Coûts navigation  
+Home sans sub durable ; gallery sub on ; about sub off.
 
-### Phase 5 — Vérification globale + doc
+### R6 — Planche multi (si data)  
+Cancel restore qty.
 
-**Commandes :**
-
-```bash
-npm run build
-# si functions toolchains locaux :
-# cd functions && npm test   # seulement s’il existe déjà des tests
-```
-
-**Checklist finale agent :**
-
-- [ ] Aucun changement Analytics
-- [ ] Aucun secret loggé
-- [ ] Gallery filters OK
-- [ ] Admin orders cancel compile toujours
-- [ ] Pas de listener public sur home (confirmé par code path)
-- [ ] Anti-stale en place
-- [ ] cancel restore toujours
-- [ ] invalidate cache exporté et appelé
-- [ ] Journal section 9 rempli
-- [ ] **Pas de deploy** sans phrase user « déploie »
-
-**Doc projet :**
-
-- Ajouter 5–10 lignes dans `_DOCS/ANALYTICS_RELIABILITY.md` **uniquement** si la décision coûts Firebase change (listener public gallery/detail justifié stock critique) — AGENTS.md l’exige pour ce type de retour live public.
-- Ou section courte en bas de ce plan + lien depuis Journal.
+### R7 — Isolation prod  
+Pendant tests : aucune écriture projet `tousatable-client` (contrôler que `.env.local` / CLI pointent sandbox).
 
 ---
 
-## 5. Ordre d’exécution imposé
-
-```
-Phase 0  baseline
-   ↓
-Phase 1  cancel restore (base juste)
-   ↓
-Phase 2  live UI A + anti-stale
-   ↓
-Phase 3  invalidate B (+ headers modérés)
-   ↓
-Phase 4  stockReserved deferred (si temps)
-   ↓
-Phase 5  build + docs + journal
-```
-
-Ne pas commencer par le front live sans Phase 1 : on afficherait plus vite un stock faux sur planches multi.
-
----
-
-## 6. Fichiers autorisés vs interdits
-
-### Autorisés
-
-- `src/App.jsx`
-- `functions/src/public/catalog.js`
-- `functions/src/commerce/cancelOrder.js`
-- `functions/src/commerce/createOrder.js`
-- `functions/index.js` (si export nécessaire seulement)
-- `_DOCS/PLAN_LIVE_CATALOG_STOCK_AB.md` (journal)
-- `_DOCS/ANALYTICS_RELIABILITY.md` (note coûts courte)
-
-### Interdits sans nouveau plan user
-
-- `AnalyticsProvider.jsx`, `AdminAnalytics.jsx`
-- `firestore.rules` (sauf besoin imprévu justifié)
-- Stripe webhook rewrite
-- SEO / sitemap
-- Design galerie / ProductCard (sauf bug sold flag purement data)
-
----
-
-## 7. Risques et mitigations (rappel rapide)
+## 8. Risques
 
 | Risque | Mitigation |
 |--------|------------|
-| HTTP ré-écrase live | `liveCollectionsRef` gate dans `applyPublicCatalog` |
-| Coût Firestore | Live public gallery/detail only ; unsub hors page |
-| Multi-instance cache B | Documenter best-effort ; A = vrai fix session |
-| Circular require catalog↔commerce | catalog n’importe pas commerce |
-| Draft produits en snapshot | Gallery filtre `published` déjà |
-| Admin tracking cassé | Ne pas toucher analytics ; smoke admin sessions |
-| Deploy accidentel | Interdit sans accord |
+| CF hardcode mauvais artifacts path | Phase 0.5 bloquante |
+| AdminOrders hardcode | Phase 0.5 |
+| HTTP ré-écrase live | liveCollectionsRef |
+| Coût Firestore | gallery/detail only |
+| Cache multi-instance | A + invalidate best-effort |
+| Deploy prod accidentel | branch feature + interdiction plan |
+| Docs env legacy | ignorer au profit SANDBOX_ARCHITECTURE_2026 |
+| Emails test client | déjà filtré prod-only dans orderEmails (doc sandbox) — ne pas casser |
 
 ---
 
-## 8. Scénarios de test bout-en-bout (recette user)
+## 9. Critères DONE
 
-À faire **après** code + build, sur environnement autorisé par l’user (idéalement compte test ; **pas** casser stock prod réel sans pièce jetable).
-
-### Recette R1 — Commande virement → vendu live
-
-1. Navigateur A (anonyme ou client) : galerie meubles, noter une pièce `published` dispo.  
-2. Navigateur B : login client test, ajouter panier, checkout **virement**, valider commande.  
-3. Sans F5 sur A : la pièce passe vendue / indisponible.  
-4. B : page Mes commandes montre la commande + item.
-
-### Recette R2 — Annulation client → re-dispo live
-
-1. Suite R1, B annule la commande (≤ 7j, non shipped).  
-2. A toujours sur galerie : pièce redevient dispo **sans F5**.  
-3. Firestore (console admin) : `sold:false`, `stock:1`.
-
-### Recette R3 — Annulation admin
-
-1. Commande pending, admin `AdminOrders` → annuler + restore.  
-2. Visiteur galerie : re-dispo live (via A).  
-3. Order disparue côté admin (delete actuel).
-
-### Recette R4 — Non-régression tracking
-
-1. Visiteur non-admin parcourt 2–3 pages.  
-2. Admin → Analytics : session visible / pas d’explosion d’erreurs.  
-3. Compte admin navigue le site : **pas** de session analytics admin (comportement existant).
-
-### Recette R5 — Navigation coûts
-
-1. Home only 1 min : pas de subscription furniture durable (devtools / absence appels firestore catalogue si observable).  
-2. Entrée galerie : subscription démarre.  
-3. Sortie about : subscription stop.
-
-### Recette R6 — Planche multi (si catalogue en a)
-
-1. Commander qty décrémentant sans sold-out.  
-2. Cancel : stock +qty en base.  
-3. UI reflète le stock (si affiché).
+1. Branche `feature/live-catalog-stock-ab` contient le travail.  
+2. `npm run build` OK.  
+3. Phase 0.5 APP_ID OK sur sandbox.  
+4. Phases 1–3 code complete.  
+5. R1–R2 validés sandbox **ou** explicitement bloqués « functions sandbox non déployées — user doit autoriser deploy sandbox ».  
+6. Analytics untouched (git diff).  
+7. Prod non déployée / non écrite.  
+8. Journal section 10 rempli.  
+9. Note coûts Firebase ajoutée.
 
 ---
 
-## 9. Journal d’exécution (à remplir par l’agent implémenteur)
+## 10. Journal d’exécution
 
 | Date | Phase | Fait | Tests | Bloqueurs | Commit |
 |------|-------|------|-------|-----------|--------|
 | | 0 | | | | |
+| | 0.5 | | | | |
 | | 1 | | | | |
 | | 2 | | | | |
 | | 3 | | | | |
 | | 4 | | | | |
 | | 5 | | | | |
 
-**Notes libres :**
+**Notes :**
 
 - …
 
 ---
 
-## 10. Critères d’acceptation finaux (signature)
+## 11. Prompt de reprise (copier-coller nouvelle conversation)
 
-L’implémentation est **DONE** seulement si :
-
-1. `npm run build` OK.  
-2. Phase 1 restore stock correct en revue code (+ test si possible).  
-3. Phase 2 live gallery/detail + anti-stale en code.  
-4. Phase 3 invalidate branchée sans require circulaire.  
-5. Recettes R1–R2 validées sur env autorisé **ou** explicitement reportées « en attente accord test prod/sandbox ».  
-6. Analytics non touché.  
-7. Aucun deploy silencieux.  
-8. Journal section 9 complété.  
-9. Note coûts Firebase ajoutée si live public gallery activé (`ANALYTICS_RELIABILITY.md` ou équivalent).
+```
+Implémente le plan _DOCS/PLAN_LIVE_CATALOG_STOCK_AB.md phase par phase.
+Contexte env : _DOCS/SANDBOX_ARCHITECTURE_2026.md
+- Branche : feature/live-catalog-stock-ab (créer si besoin)
+- Runtime tests : sandbox sandboxtat via .env.local / npm run dev
+- Interdit : prod Firestore write, deploy prod, toucher analytics, élargir scope Stripe/SEO
+- Commencer par Phase 0 puis gate 0.5 APP_ID avant tout live catalogue
+- Remplir le journal en bas du plan
+- Pas de merge main sans mon OK
+```
 
 ---
 
-## 11. Message d’accueil pour l’agent implémenteur
+## 12. Message agent
 
-Tu n’inventes pas une nouvelle archi. Tu appliques **A (live ciblé) + B (invalidate)** et tu **corriges le restore cancel** pour que le live ne mente pas.  
-Tu commences par Phase 0–1, tu ne « optimises » pas le design, tu ne touches pas au tracking.  
-Si un choix ambigu apparaît : **gallery/detail only**, **anti-stale obligatoire**, **pas de deploy**.
+Tu n’inventes pas d’archi. Tu alignes **APP_ID sandbox**, tu fixes **restore cancel**, tu actives **live gallery/detail** avec **anti-stale**, tu **invalides** le cache catalog.  
+Feature branch, tests sandbox, zéro prod.  
+Si doute env : relire `_DOCS/SANDBOX_ARCHITECTURE_2026.md` et `.firebaserc`.
 
 Fin du plan.

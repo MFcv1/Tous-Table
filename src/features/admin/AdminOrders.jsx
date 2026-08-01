@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { collection, query, orderBy, onSnapshot, doc, updateDoc, deleteDoc, limit } from 'firebase/firestore';
-import { db } from '../../firebase/config';
+import { db, appId } from '../../firebase/config';
 import { Package, Clock, CheckCircle, Mail, ChevronDown, ChevronUp, Download, Loader2, Truck, XCircle } from 'lucide-react';
 import { exportRowsToCsv } from '../../utils/csvExport';
 
@@ -45,8 +45,6 @@ const AdminOrders = ({ darkMode = false }) => {
             if (order.items && order.items.length > 0) {
                 // Import increment dynamically
                 const { increment, updateDoc, getDoc } = await import('firebase/firestore');
-                // Note: db and appId form closure
-                const appId = 'tat-made-in-normandie';
 
                 for (const item of order.items) {
                     // Determine ID and Collection

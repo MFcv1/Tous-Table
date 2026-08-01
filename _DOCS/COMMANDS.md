@@ -1,48 +1,68 @@
 # ⚡ Commandes Rapides (Terminal)
 
-Ce fichier récapitule les commandes essentielles pour travailler sur le projet.
+Ce fichier récapitule les commandes essentielles.  
+**Environnements (source de vérité) :** `_DOCS/SANDBOX_ARCHITECTURE_2026.md`
 
 ---
 
-## 🛠️ Développement Local
+## 🛠️ Développement Local (Sandbox)
 
-### 1. Lancer le site sur ton PC uniquement
-Pour travailler normalement.
 ```bash
 npm run dev
 ```
-*Accès :* `http://localhost:5173`
 
-### 2. Lancer le site pour tester sur MOBILE (Wi-Fi)
-Pour que ton téléphone puisse se connecter au site hébergé sur ton PC.
+*Accès :* `http://localhost:5173`  
+*Data :* projet Firebase **sandboxtat** via `.env.local` (`VITE_APP_LOGICAL_NAME=sandboxtat`)
+
+### Mobile (même Wi-Fi)
+
 ```bash
 npm run dev -- --host
 ```
-*Accès :* Regarde l'adresse `Network` qui s'affiche (ex: `http://192.168.1.XX:5173`). Ton téléphone doit être sur le même Wi-Fi.
 
 ---
 
-## 🚀 Mise en Ligne
+## 🚀 Builds
 
-### 3. Construire le site (Optimisation)
-À faire avant chaque déploiement pour préparer les fichiers.
+| But | Commande | Env file |
+|-----|----------|----------|
+| Build sandbox / test | `npm run build` | `.env` / mode default |
+| Build **production** | `npm run build:prod` | `.env.prod` |
+
+⚠️ Ne jamais déployer la prod avec un simple `npm run build`.
+
+---
+
+## ☁️ Firebase CLI
+
 ```bash
+firebase use              # voir le projet actif
+firebase use sandbox      # sandboxtat
+firebase use prod         # tousatable-client — DANGER sans accord
+```
+
+### Deploy sandbox (sur demande)
+
+```bash
+firebase use sandbox
 npm run build
+firebase deploy
+# URL: https://sandboxtat.web.app
 ```
 
-### 4. Déployer sur Internet
-Envoie la version construite chez Google (Firebase).
+### Deploy production (accord user explicite + preflight)
+
 ```bash
-firebase deploy
+firebase use prod
+npm run build:prod
+# puis firebase deploy selon runbook
+firebase use sandbox      # revenir en non-prod
 ```
-*Accès :* `https://tatmadeinnormandie.web.app`
 
 ---
 
-## ⚡ Combo Gagnant (Build + Deploy)
-Pour tout faire d'un coup (si tu es sûr de toi).
+## 📚 Docs liées
 
-**Sur PowerShell (Windows) :**
-```powershell
-npm run build; firebase deploy
-```
+- `_DOCS/SANDBOX_ARCHITECTURE_2026.md`
+- `_DOCS/DEPLOIEMENT_PROD_RUNBOOK.md`
+- `_DOCS/HANDOFF_LIVE_STOCK_SANDBOX.md`

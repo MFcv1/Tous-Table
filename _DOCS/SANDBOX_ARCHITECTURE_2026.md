@@ -1,67 +1,162 @@
 # Architecture Multi-Environnement : Prod vs Sandbox (Août 2026)
 
-Ce document récapitule l'ensemble du travail d'architecture réalisé pour séparer totalement l'environnement de développement (Sandbox) de la Production (Prod), tout en permettant de cloner la base de données pour les tests.
+Ce document récapitule l'architecture qui sépare l'environnement de développement (**Sandbox**) de la **Production**, tout en permettant de cloner un snapshot de données pour les tests.
 
-**Ce document est à fournir à tout agent IA devant effectuer un audit ou travailler sur l'environnement local/Sandbox.**
+**À fournir à tout agent IA** qui développe en local, teste, ou déploie hors prod.
+
+**Complément chantier catalogue live :** `_DOCS/PLAN_LIVE_CATALOG_STOCK_AB.md`
 
 ---
 
 ## 1. Les Projets Firebase
 
-- **PRODUCTION** : `tousatable-client` (Domaine : `tousatable-madeinnormandie.fr`)
-- **SANDBOX** : `sandboxtat` (Domaine : `sandboxtat.web.app` ou `localhost`)
+| Rôle | Project ID | Domaine typique | Alias `.firebaserc` (vérifier machine) |
+|------|------------|-----------------|----------------------------------------|
+| **PRODUCTION** | `tousatable-client` | `tousatable-madeinnormandie.fr` | `prod` |
+| **SANDBOX** | `sandboxtat` | `sandboxtat.web.app` / `localhost` | `sandbox` |
 
-Ces deux projets sont 100% étanches. Les clés API sont différentes et l'App Check de Google bloque tout accès croisé depuis le front-end.
+Ces projets sont **étanches** (clés API différentes, App Check, pas d’accès croisé front).
 
-## 2. Séparation de la Base de Données (Firestore)
-
-Pour que la Sandbox et la Prod puissent partager **exactement le même code source** sans risque de collision, une variable dynamique a été introduite dans les règles de sécurité (`firestore.rules`) et dans l'arborescence : la variable `{appId}`.
-
-- En Prod, les données sont stockées dans : `artifacts/tat-made-in-normandie/...`
-- En Sandbox, les données sont stockées dans : `artifacts/sandboxtat/...`
-
-Le fichier `firestore.rules` utilise `match /artifacts/{appId}/...` pour protéger les deux environnements de manière identique avec le même code ("Write Once, Deploy Anywhere").
-
-## 3. Configuration des Variables d'Environnement
-
-Le projet réagit automatiquement selon qu'il est lancé en `dev` ou buildé pour la `prod`.
-
-- **`.env.local` (Sandbox / Dev)** :
-  - Contient les clés API de `sandboxtat`.
-  - Définit `VITE_APP_ID="sandboxtat"`, demandant au code source de lire le nœud `artifacts/sandboxtat`.
-
-- **`.env.production` (Prod)** :
-  - Contient les clés API de `tousatable-client`.
-  - Définit `VITE_APP_ID="tat-made-in-normandie"`, demandant au code source de lire le nœud `artifacts/tat-made-in-normandie`.
-
-## 4. Script de Migration (Clone Prod -> Sandbox)
-
-Un script exclusif côté serveur (`migration-script/migrate.js`) a été codé pour cloner la base de données Prod vers la Sandbox. Il utilise le **Firebase Admin SDK** avec les identifiants de service pour contourner la protection App Check.
-
-**Fonctionnement du script :**
-- Il copie les collections principales (`orders`, `users`, `affiliate_clicks`, etc.).
-- Il copie la collection `artifacts/tat-made-in-normandie` et **la renomme à la volée** en `artifacts/sandboxtat`.
-- Il explore récursivement tous les sous-dossiers virtuels (`public/data/furniture`, `public/data/cutting_boards`, etc.) pour s'assurer que l'intégralité du catalogue est clonée.
-- **Optimisation** : Il exclut volontairement les collections analytiques volumineuses (`analytics_sessions` ~4000 docs, `client_errors`) pour garder la Sandbox rapide et légère.
-
-*Commande pour l'exécuter : `node migrate.js` dans le dossier `migration-script`.*
-
-## 5. Sécurité des Emails (Protection du Client)
-
-Pour éviter que le client (`tousatablemadeinnormandie@gmail.com`) ne reçoive des dizaines d'emails de test (fausses commandes) générés par la Sandbox, la Cloud Function d'envoi de mail (`orderEmails.js`) a été sécurisée.
-
-- Une fonction `isProductionProject()` vérifie le `process.env.GCLOUD_PROJECT`.
-- Le mail du client n'est injecté dans les destinataires **que si** le projet est `tousatable-client`.
-- Sur la Sandbox (`sandboxtat`), les secrets Cloud Functions (`GMAIL_EMAIL` et `GMAIL_PASSWORD`) ont été définis avec l'adresse du développeur (`matthis.fradin2@gmail.com`). Toutes les alertes de test tombent donc uniquement chez le dev.
-
-## 6. Prochaines Étapes (Déploiement)
-
-Le système de déploiement multi-cibles (`npm run dashboard` lié au script NextJS de déploiement) est la dernière brique.
-Il doit être mis à jour pour détecter ces deux environnements distincts, afin de permettre au développeur de :
-- Déployer d'un clic sur la Sandbox pour des tests en direct.
-- Déployer d'un clic sur la Production une fois la version validée. 
-
-L'architecture actuelle (`.firebaserc` gérant les alias `default` et `prod`) permet cette double connexion de déploiement.
+> **Note :** la sandbox opérationnelle (août 2026) est le projet Firebase **`sandboxtat`**. Ne pas confondre avec d’anciens noms de projet (`tatmadeinnormandie`) encore cités dans des audits/historiques.
 
 ---
-**Statut actuel** : La Sandbox est pleinement opérationnelle, peuplée de toutes les données du catalogue et les requêtes locales via `npm run dev` pointent bien vers `sandboxtat`. Un audit ou des tests intensifs peuvent y être menés sans **aucun** impact sur la base de production ou sur la facturation.
+
+## 2. Séparation Firestore (`{appId}`)
+
+Même code source ; chemins data différents :
+
+| Env | Chemin catalogue |
+|-----|------------------|
+| Prod | `artifacts/tat-made-in-normandie/...` |
+| Sandbox | `artifacts/sandboxtat/...` |
+
+`firestore.rules` utilise `match /artifacts/{appId}/...` (Write Once, Deploy Anywhere).
+
+**Front :**
+
+```js
+// src/firebase/config.js
+const appId = import.meta.env.VITE_APP_LOGICAL_NAME || 'tat-made-in-normandie';
+```
+
+Variable attendue :
+
+- Sandbox `.env.local` → `VITE_APP_LOGICAL_NAME=sandboxtat`
+- Prod `.env.prod` → `VITE_APP_LOGICAL_NAME=tat-made-in-normandie`
+
+> Le nom exact de la variable est **`VITE_APP_LOGICAL_NAME`** (pas `VITE_APP_ID` — ce dernier est l’App ID Firebase technique du SDK).
+
+**Functions :** doivent résoudre le même logical id via `functions/helpers/config.js` (idéalement dérivé de `GCLOUD_PROJECT`, **pas** hardcode prod-only).  
+Hardcode historique `APP_ID = 'tat-made-in-normandie'` dans helpers/catalog = **piège sandbox** → voir gate Phase 0.5 du plan live stock.
+
+---
+
+## 3. Variables d'environnement Front
+
+| Fichier | Usage | Projet |
+|---------|--------|--------|
+| `.env.local` | `npm run dev` (prioritaire Vite) | Sandbox `sandboxtat` |
+| `.env` | fallback dev / build sandbox selon setup | Souvent sandbox |
+| `.env.prod` | `npm run build:prod` (`vite build --mode prod`) | Prod `tousatable-client` |
+
+**Scripts `package.json` :**
+
+- `npm run dev` → Vite + `.env.local`
+- `npm run build` → build **non prod-mode** (ne pas utiliser pour le site client)
+- `npm run build:prod` → `--mode prod` → charge `.env.prod`
+
+**Ne jamais** committer de secrets. Ne pas coller les valeurs des `.env*` dans le chat / les issues.
+
+---
+
+## 4. Clone Prod → Sandbox (données)
+
+Un script Admin SDK clone la prod vers la sandbox (contourne App Check) :
+
+- Copie collections utiles (`orders`, `users`, catalogue sous `artifacts/...`, etc.).
+- Renomme à la volée `artifacts/tat-made-in-normandie` → `artifacts/sandboxtat`.
+- Exclut souvent le lourd analytics (`analytics_sessions`, `client_errors`).
+
+Emplacement documenté : dossier `migration-script` / scripts repo (`scripts/sync-prod-to-sandbox.cjs` selon historique).  
+**Lancer uniquement avec intention explicite** — écrit la sandbox, lit la prod (credentials service account).
+
+---
+
+## 5. Emails (protection client)
+
+Sur Cloud Functions mail (`orderEmails`) :
+
+- Envoi vers la boîte client métier **uniquement** si projet = `tousatable-client`.
+- Sur `sandboxtat`, secrets Gmail orientés dev → les tests ne spamment pas le client.
+
+Ne pas casser ce garde-fou en « simplifiant » les mails.
+
+---
+
+## 6. Git workflow (important)
+
+### Ne PAS créer une branche git appelée « sandbox »
+
+Sandbox ≠ branche. C’est un **projet Firebase + fichiers env**.
+
+### Workflow recommandé
+
+```
+main                    = code stable (prod-ready)
+feature/<mission>       = dev + tests contre sandbox
+```
+
+1. `git checkout -b feature/ma-mission` depuis `main`
+2. Coder ; `npm run dev` → sandbox via `.env.local`
+3. Commits sur la feature branch
+4. Validation sandbox (local et/ou deploy `sandboxtat` si besoin)
+5. Merge dans `main` **après OK user**
+6. Deploy **prod** seulement avec accord explicite + `build:prod` + `firebase use prod`
+
+### Firebase CLI
+
+Avant tout `firebase deploy` :
+
+```bash
+firebase use            # afficher le projet courant
+firebase use sandbox    # sandboxtat — pour tests
+# firebase use prod     # tousatable-client — DANGER sans accord
+```
+
+Après un deploy prod : **revenir** sur un alias non-prod.
+
+---
+
+## 7. Déploiement (état)
+
+| Cible | Build | Firebase project | Notes |
+|-------|-------|------------------|--------|
+| Local | `npm run dev` | via `.env.local` | Quotidien |
+| Sandbox online | `npm run build` puis deploy | `sandboxtat` | Sur demande |
+| Production | `npm run build:prod` puis deploy | `tousatable-client` | Accord user + preflight |
+
+Le multi-deploy « dashboard one-click » peut encore évoluer ; l’essentiel est **ne jamais** builder la prod avec les env sandbox et inversement.
+
+---
+
+## 8. Checklist agent avant de coder
+
+- [ ] J’ai lu ce doc + le plan de ma mission  
+- [ ] Je suis sur une **feature branch**, pas en train de committer des essais directs sur `main` sans demande  
+- [ ] `npm run dev` pointe sandbox (`sandboxtat` + logical name `sandboxtat`)  
+- [ ] Je n’écris pas en Firestore prod  
+- [ ] Je ne déploie pas la prod sans phrase claire de l’user  
+- [ ] Je ne logge aucun secret  
+
+---
+
+## 9. Statut (août 2026)
+
+- Sandbox `sandboxtat` opérationnelle, peuplée par snapshot catalogue.  
+- `npm run dev` + `.env.local` = voie normale de développement.  
+- Audits / implémentations (ex. live stock catalogue) = **tests sandbox d’abord**.  
+- Prod isolée tant qu’on ne merge/deploy pas explicitement.
+
+---
+
+**Fin du document.**
