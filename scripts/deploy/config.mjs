@@ -3,11 +3,11 @@ export const PROJECT_NAME = 'Tous-Table';
 export const ENVIRONMENTS = {
   sandbox: {
     name: 'sandbox',
-    alias: 'default',
-    projectId: 'tatmadeinnormandie',
+    alias: 'sandbox',
+    projectId: 'sandboxtat',
     envFile: '.env.local', // Le mode dev de Vite lit .env.local
     buildScript: 'build',
-    url: 'https://tatmadeinnormandie.web.app',
+    url: 'https://sandboxtat.web.app',
     label: 'SANDBOX',
     color: 'cyan'
   },

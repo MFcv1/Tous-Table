@@ -3,7 +3,8 @@
     "default": "tatmadeinnormandie",
     "production": "tatmadeinnormandie",
     "staging": "tatmadeinnormandie-staging",
-    "prod": "tousatable-client"
+    "prod": "tousatable-client",
+    "sandbox": "sandboxtat"
   },
   "targets": {},
   "etags": {}

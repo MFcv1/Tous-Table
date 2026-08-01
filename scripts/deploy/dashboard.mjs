@@ -266,11 +266,11 @@ async function showStatus() {
 async function askEnvironment() {
   showHeader();
   const { env } = await inquirer.prompt([{
-    type: 'list',
+    type: 'select',
     name: 'env',
     message: 'Quel environnement souhaites-tu gérer ?',
     choices: [
-      { name: chalk.cyan.bold('SANDBOX    (tatmadeinnormandie)'), value: 'sandbox' },
+      { name: chalk.cyan.bold('SANDBOX    (sandboxtat)'), value: 'sandbox' },
       { name: chalk.red.bold('PRODUCTION (tousatable-client)'), value: 'prod' },
       new inquirer.Separator(),
       { name: 'Voir l\'état du système (Status)', value: 'status' },
@@ -310,7 +310,7 @@ async function main() {
     showHeader();
 
     const { action } = await inquirer.prompt([{
-      type: 'list',
+      type: 'select',
       name: 'action',
       message: 'Que veux-tu faire ?',
       pageSize: 10,
