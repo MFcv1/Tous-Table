@@ -14,6 +14,7 @@ const admin = require('firebase-admin');
 const { checkIsAdmin } = require('../../helpers/security');
 const { STRIPE_SECRET_KEY, GMAIL_EMAIL, GMAIL_PASSWORD } = require('../../helpers/secrets');
 const { APP_ID, getSiteUrl } = require('../../helpers/config');
+const { invalidatePublicCatalogCache } = require('../public/catalog');
 
 const db = admin.firestore();
 const Stripe = require('stripe');
@@ -144,6 +145,8 @@ exports.createOrder = functions.runWith({ secrets: [STRIPE_SECRET_KEY, GMAIL_EMA
                     paymentMethod: 'deferred',
                     total: txTotal,
                     status: 'pending_payment',
+                    // Stock déjà décrémenté atomiquement (pièces uniques / planches).
+                    stockReserved: true,
                     createdAt: admin.firestore.FieldValue.serverTimestamp(),
                     stripeSessionId: null
                 });
@@ -162,6 +165,7 @@ exports.createOrder = functions.runWith({ secrets: [STRIPE_SECRET_KEY, GMAIL_EMA
                 console.error("Erreur vidage panier côté serveur:", err);
             }
 
+            invalidatePublicCatalogCache();
             return { success: true, orderId: orderRef.id };
         } catch (e) {
             console.error("Manual Order Error", e);
@@ -286,6 +290,8 @@ exports.createOrder = functions.runWith({ secrets: [STRIPE_SECRET_KEY, GMAIL_EMA
 
             await orderRef.update({ stripePaymentIntentId: paymentIntent.id });
 
+            // Stock réservé : invalider le cache catalogue pour les cold loads.
+            invalidatePublicCatalogCache();
             return {
                 success: true,
                 clientSecret: paymentIntent.client_secret,
@@ -314,6 +320,7 @@ exports.createOrder = functions.runWith({ secrets: [STRIPE_SECRET_KEY, GMAIL_EMA
                     }
                     transaction.delete(orderRef);
                 });
+                invalidatePublicCatalogCache();
             } catch (restoreError) {
                 console.error("CRITICAL: Stock restore failed after PI error:", restoreError);
             }

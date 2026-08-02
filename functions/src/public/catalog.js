@@ -28,6 +28,19 @@ const CACHE_TTL_MS = 5 * 60 * 1000;
 let cachedCatalog = null;
 let cachedAt = 0;
 let inflightCatalogRead = null;
+/** Incrémenté à chaque invalidation pour ne pas re-cacher une lecture concurrente stale. */
+let cacheEpoch = 0;
+
+/**
+ * Invalide le cache mémoire publicCatalog (best-effort multi-instance).
+ * À appeler après toute mutation stock catalogue (createOrder, cancel, etc.).
+ */
+const invalidatePublicCatalogCache = () => {
+    cacheEpoch += 1;
+    cachedCatalog = null;
+    cachedAt = 0;
+    inflightCatalogRead = null;
+};
 
 const serializeValue = (value) => {
     if (!value) return value;
@@ -68,6 +81,8 @@ const readPublicCatalog = async () => {
         return cachedCatalog;
     }
 
+    const epochAtStart = cacheEpoch;
+
     if (!inflightCatalogRead) {
         inflightCatalogRead = Promise.all(
             PUBLIC_COLLECTIONS.map(async (collectionName) => [
@@ -76,13 +91,17 @@ const readPublicCatalog = async () => {
             ])
         )
             .then((entries) => {
-                cachedCatalog = {
+                const payload = {
                     appId: APP_ID,
                     generatedAt: new Date().toISOString(),
                     collections: Object.fromEntries(entries),
                 };
-                cachedAt = Date.now();
-                return cachedCatalog;
+                // Ne publier le cache que si aucune invalidation n'est intervenue pendant la lecture.
+                if (epochAtStart === cacheEpoch) {
+                    cachedCatalog = payload;
+                    cachedAt = Date.now();
+                }
+                return payload;
             })
             .finally(() => {
                 inflightCatalogRead = null;
@@ -92,6 +111,8 @@ const readPublicCatalog = async () => {
     return inflightCatalogRead;
 };
 
+exports.invalidatePublicCatalogCache = invalidatePublicCatalogCache;
+
 exports.publicCatalog = functions.https.onRequest(async (req, res) => {
     const origin = req.get('origin');
     if (ALLOWED_ORIGINS.has(origin)) {
@@ -100,7 +121,8 @@ exports.publicCatalog = functions.https.onRequest(async (req, res) => {
     }
     res.set('Access-Control-Allow-Methods', 'GET, OPTIONS');
     res.set('Access-Control-Allow-Headers', 'Content-Type');
-    res.set('Cache-Control', 'public, max-age=300, s-maxage=600, stale-while-revalidate=300');
+    // TTL modéré : cold load plus frais ; le live gallery|detail couvre le temps réel.
+    res.set('Cache-Control', 'public, max-age=60, s-maxage=120, stale-while-revalidate=60');
 
     if (req.method === 'OPTIONS') {
         res.status(204).send('');

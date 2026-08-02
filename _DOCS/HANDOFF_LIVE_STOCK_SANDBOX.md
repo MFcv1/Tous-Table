@@ -4,37 +4,28 @@
 
 ## Lire dans cet ordre
 
-1. `AGENTS.md` (règles prod / coûts Firebase)
-2. `_DOCS/SANDBOX_ARCHITECTURE_2026.md` (prod vs sandboxtat, env, git)
-3. `_DOCS/PLAN_LIVE_CATALOG_STOCK_AB.md` (**plan d’implémentation exécutable**)
+1. **`_DOCS/todo.md`** ← **fichier directeur** (où on en est + prompts de reprise)
+2. `AGENTS.md` (règles prod / coûts)
+3. `_DOCS/SANDBOX_ARCHITECTURE_2026.md`
+4. `_DOCS/PLAN_LIVE_CATALOG_STOCK_AB.md` (détail technique des phases)
 
 ## Prompt à coller
 
 ```
-Implémente le plan _DOCS/PLAN_LIVE_CATALOG_STOCK_AB.md phase par phase.
-Contexte env : _DOCS/SANDBOX_ARCHITECTURE_2026.md
-
-- Branche git : feature/live-catalog-stock-ab (créer si besoin) — PAS de branche "sandbox"
-- Tests : sandbox sandboxtat via .env.local + npm run dev
-- Interdit : écriture Firestore prod, deploy prod, modifier analytics, élargir Stripe/SEO
-- Commencer par Phase 0 puis gate 0.5 APP_ID (functions hardcode) avant le live UI
-- Parcours paiement à tester : virement/deferred only
-- Remplir le journal en bas du plan
-- Pas de merge main / deploy sans mon OK explicite
+Lis d'abord _DOCS/todo.md (directeur) puis _DOCS/PLAN_LIVE_CATALOG_STOCK_AB.md.
+Exécute la phase indiquée dans todo.md « Phase courante ».
+À chaque fin de phase : mets à jour todo.md + réponds avec Fait / Reste / Prompt de reprise.
+Contexte : _DOCS/SANDBOX_ARCHITECTURE_2026.md
+- Branche feature/live-catalog-stock-ab · sandbox sandboxtat only
+- Live public gallery|detail only · pas de deploy prod sans OK
 ```
 
-## Rappels express
+## Rappels
 
 | Sujet | Décision |
 |-------|----------|
-| Branche sandbox git ? | **Non** — feature branch par mission |
+| Directeur avancement | `_DOCS/todo.md` |
+| Plan technique | `_DOCS/PLAN_LIVE_CATALOG_STOCK_AB.md` |
+| Branche sandbox git ? | **Non** — feature branch |
 | Où tester ? | **sandboxtat** |
-| Piège #1 | Functions `APP_ID` hardcodé `tat-made-in-normandie` |
-| Piège #2 | Vieux docs env = `tatmadeinnormandie` (obsolète) |
-| Live UI | gallery + detail only + anti-stale HTTP |
-| Cancel | restore stock toujours (phase 1) |
-
-## Copies plan
-
-- `_DOCS/PLAN_LIVE_CATALOG_STOCK_AB.md` (source)
-- `.hermes/plans/` (miroir si présent)
+| Fin de chaque phase | Fait + Reste + prompt suite dans le chat **et** dans todo.md |

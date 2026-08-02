@@ -385,3 +385,18 @@ npm run verify:analytics-reliability
 npm run verify:functions-syntax
 npm run build
 ```
+
+## Patch catalogue live stock 2026-08 — gallery|detail only
+
+Contexte: chantier live catalogue stock (`_DOCS/PLAN_LIVE_CATALOG_STOCK_AB.md`, `_DOCS/todo.md`). Objectif: statut sold/stock à jour en 1–3 s sur galerie et fiche produit, sans rouvrir des listeners publics sur toutes les vues.
+
+Décision coûts (alignée AGENTS.md):
+
+- **Live public stock** : `onSnapshot` uniquement si `view === 'gallery' || view === 'detail'`, collection meubles **ou** planches selon la vue (pas les deux systématiquement).
+- **Home / shop / about / checkout** : pas de live stock public durable — bootstrap `publicCatalog` HTTP uniquement.
+- **Admin** : live inchangé (déjà nécessaire pour l’édition).
+- **Anti-stale** : `liveCollectionsRef` empêche une réponse HTTP tardive d’écraser une collection déjà live.
+- **Cache CF** : `invalidatePublicCatalogCache()` après mutations stock (`createOrder` deferred/reservation, `cancelOrderClient`) ; headers `max-age=60, s-maxage=120, stale-while-revalidate=60` (best-effort multi-instance).
+- **Analytics** : non modifié (`AnalyticsProvider` / `AdminAnalytics` hors scope).
+
+Impact attendu vs full live public: lectures Firestore limitées aux visiteurs réellement sur galerie/fiche, unsub hors de ces vues.

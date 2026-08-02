@@ -143,6 +143,8 @@ const AppContent = () => {
   const footerRef = useRef(null);
   const publicCatalogFallbackRef = useRef(null);
   const deferredPublicCatalogRef = useRef(null);
+  /** Collections déjà en live onSnapshot — l'HTTP ne doit pas les écraser (anti-stale). */
+  const liveCollectionsRef = useRef(new Set());
 
 
 
@@ -332,6 +334,26 @@ const AppContent = () => {
     return '';
   }, [view, persistentGalleryState.activeCollection, selectedItemId, items, boardItems]);
 
+  /**
+   * Clé live stock public (furniture / cutting_boards) stable gallery ↔ detail
+   * sur la même collection — évite un unsub/resub Firestore inutile.
+   * Vide hors gallery|detail.
+   */
+  const publicLiveStockKey = React.useMemo(() => {
+    if (view === 'gallery') {
+      return persistentGalleryState.activeCollection === 'cutting_boards'
+        ? 'cutting_boards'
+        : 'furniture';
+    }
+    if (view === 'detail') {
+      if (boardItems.some((item) => item.id === selectedItemId)) return 'cutting_boards';
+      if (items.some((item) => item.id === selectedItemId)) return 'furniture';
+      // Produit pas encore résolu : les deux stock (temporaire).
+      return 'furniture|cutting_boards';
+    }
+    return '';
+  }, [view, persistentGalleryState.activeCollection, selectedItemId, items, boardItems]);
+
   // --- SCROLL HEADER LOGIC ---
   const [isHeaderVisible, setIsHeaderVisible] = useState(true);
   const lastScrollYRef = useRef(0);
@@ -380,8 +402,14 @@ const AppContent = () => {
     }
 
     const catalogPayload = normalizePublicCatalogPayload(collections);
-    setItems(catalogPayload.items);
-    setBoardItems(catalogPayload.boardItems);
+    const live = liveCollectionsRef.current;
+    // Ne pas écraser une collection déjà alimentée en live (réponse HTTP tardive = stale).
+    if (!live.has('furniture')) {
+      setItems(catalogPayload.items);
+    }
+    if (!live.has('cutting_boards')) {
+      setBoardItems(catalogPayload.boardItems);
+    }
     setAffiliateProducts(catalogPayload.affiliateProducts);
     setResolvedPublicCollections({
       furniture: true,
@@ -568,40 +596,56 @@ const AppContent = () => {
   }, []);
 
   // --- CHARGEMENT ---
-  // --- CHARGEMENT DONNÉES PUBLIQUES (Stable) ---
+  // Helpers catalogue (partagés admin / public HTTP / live stock).
+  const mapFurnitureSnap = React.useCallback(
+    (snap) => snap.docs
+      .map((d) => ({ id: d.id, collectionName: 'furniture', ...d.data() }))
+      .sort(sortByCreatedAtDesc),
+    [],
+  );
+
+  const mapBoardsSnap = React.useCallback(
+    (snap) => snap.docs
+      .map((d) => ({ id: d.id, collectionName: 'cutting_boards', ...d.data() }))
+      .sort(sortByCreatedAtDesc),
+    [],
+  );
+
+  const fetchPublicCatalogFallback = React.useCallback((reason, { rethrow = false } = {}) => {
+    if (!publicCatalogFallbackRef.current) {
+      const projectId = import.meta.env.VITE_FIREBASE_PROJECT_ID;
+      const url = `https://us-central1-${projectId}.cloudfunctions.net/publicCatalog`;
+      publicCatalogFallbackRef.current = fetch(url)
+        .then((response) => {
+          if (!response.ok) throw new Error(`publicCatalog ${response.status}`);
+          return response.json();
+        })
+        .then((payload) => {
+          if (isCatalogStartupRoute(initialRouteRef.current)) {
+            warmupStartupCatalogImagesForRoute(
+              initialRouteRef.current,
+              normalizePublicCatalogPayload(payload.collections),
+            );
+          }
+          applyPublicCatalog(payload.collections);
+          return payload;
+        })
+        .catch((error) => {
+          publicCatalogFallbackRef.current = null;
+          throw error;
+        });
+    }
+
+    return publicCatalogFallbackRef.current.catch((error) => {
+      console.error(`Fallback catalogue public impossible apres ${reason}:`, error);
+      if (rethrow) throw error;
+    });
+  }, [applyPublicCatalog]);
+
+  // --- CHARGEMENT DONNÉES PUBLIQUES (HTTP + admin live) ---
+  // Live stock public : effet séparé (publicLiveStockKey) pour ne pas unsub/resub
+  // en passant gallery → detail sur la même collection.
   useEffect(() => {
-    // 1. Meubles (Données)
-    const fetchPublicCatalogFallback = (reason, { rethrow = false } = {}) => {
-      if (!publicCatalogFallbackRef.current) {
-        const projectId = import.meta.env.VITE_FIREBASE_PROJECT_ID;
-        const url = `https://us-central1-${projectId}.cloudfunctions.net/publicCatalog`;
-        publicCatalogFallbackRef.current = fetch(url)
-          .then((response) => {
-            if (!response.ok) throw new Error(`publicCatalog ${response.status}`);
-            return response.json();
-          })
-          .then((payload) => {
-            if (isCatalogStartupRoute(initialRouteRef.current)) {
-              warmupStartupCatalogImagesForRoute(
-                initialRouteRef.current,
-                normalizePublicCatalogPayload(payload.collections),
-              );
-            }
-            applyPublicCatalog(payload.collections);
-            return payload;
-          })
-          .catch((error) => {
-            publicCatalogFallbackRef.current = null;
-            throw error;
-          });
-      }
-
-      return publicCatalogFallbackRef.current.catch((error) => {
-        console.error(`Fallback catalogue public impossible apres ${reason}:`, error);
-        if (rethrow) throw error;
-      });
-    };
-
     const handlePublicReadError = (label, error) => {
       console.error(`Erreur lecture ${label}:`, error);
       fetchPublicCatalogFallback(label);
@@ -615,13 +659,14 @@ const AppContent = () => {
 
     if (!activeCollections.length) return undefined;
 
-    const subscribeToPublicCollections = () => {
+    /** onSnapshot sur les collections actives (admin, ou fallback public si HTTP down). */
+    const subscribeCatalogCollections = () => {
       const subscriptions = [];
 
       if (activeCollections.includes('furniture')) {
         subscriptions.push(onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'furniture'), (snap) => {
-          setItems(snap.docs.map(d => ({ id: d.id, collectionName: 'furniture', ...d.data() })).sort(sortByCreatedAtDesc));
-          setResolvedPublicCollections(prev => ({ ...prev, furniture: true }));
+          setItems(mapFurnitureSnap(snap));
+          setResolvedPublicCollections((prev) => ({ ...prev, furniture: true }));
         }, (error) => {
           handlePublicReadError('meubles', error);
         }));
@@ -629,8 +674,8 @@ const AppContent = () => {
 
       if (activeCollections.includes('cutting_boards')) {
         subscriptions.push(onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'cutting_boards'), (snap) => {
-          setBoardItems(snap.docs.map(d => ({ id: d.id, collectionName: 'cutting_boards', ...d.data() })).sort(sortByCreatedAtDesc));
-          setResolvedPublicCollections(prev => ({ ...prev, cutting_boards: true }));
+          setBoardItems(mapBoardsSnap(snap));
+          setResolvedPublicCollections((prev) => ({ ...prev, cutting_boards: true }));
         }, (error) => {
           handlePublicReadError('planches', error);
         }));
@@ -638,8 +683,8 @@ const AppContent = () => {
 
       if (activeCollections.includes('affiliate_products')) {
         subscriptions.push(onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'affiliate_products'), (snap) => {
-          setAffiliateProducts(snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(p => p.status === 'published'));
-          setResolvedPublicCollections(prev => ({ ...prev, affiliate_products: true }));
+          setAffiliateProducts(snap.docs.map((d) => ({ id: d.id, ...d.data() })).filter((p) => p.status === 'published'));
+          setResolvedPublicCollections((prev) => ({ ...prev, affiliate_products: true }));
         }, (error) => {
           handlePublicReadError('produits affilies', error);
         }));
@@ -648,22 +693,91 @@ const AppContent = () => {
       return () => subscriptions.forEach((unsubscribe) => unsubscribe());
     };
 
-    if (!isAdmin) {
-      let cancelled = false;
-      let cleanupRealtimeFallback = null;
-
-      fetchPublicCatalogFallback('lecture publique cachee', { rethrow: true }).catch(() => {
-        if (!cancelled) cleanupRealtimeFallback = subscribeToPublicCollections();
-      });
-
-      return () => {
-        cancelled = true;
-        cleanupRealtimeFallback?.();
-      };
+    // Admin : temps réel complet (comportement historique).
+    if (isAdmin) {
+      return subscribeCatalogCollections();
     }
 
-    return subscribeToPublicCollections();
-  }, [publicRealtimeReady, activePublicRealtimeCollectionsKey, applyPublicCatalog, isAdmin]); // Public: catalogue HTTP cache. Admin: temps reel.
+    // Public : bootstrap HTTP uniquement ici (live stock = effet suivant).
+    let cancelled = false;
+    let cleanupErrorFallback = null;
+    const publicLiveStockEnabled = Boolean(publicLiveStockKey);
+
+    fetchPublicCatalogFallback('lecture publique cachee', { rethrow: true }).catch(() => {
+      if (cancelled || publicLiveStockEnabled) return;
+      // Vues sans live stock : si HTTP tombe, fallback onSnapshot temporaire.
+      cleanupErrorFallback = subscribeCatalogCollections();
+    });
+
+    return () => {
+      cancelled = true;
+      cleanupErrorFallback?.();
+    };
+  }, [
+    publicRealtimeReady,
+    activePublicRealtimeCollectionsKey,
+    applyPublicCatalog,
+    isAdmin,
+    publicLiveStockKey,
+    fetchPublicCatalogFallback,
+    mapFurnitureSnap,
+    mapBoardsSnap,
+  ]);
+
+  // --- LIVE STOCK PUBLIC : gallery|detail only (clé stable gallery↔detail même collection) ---
+  useEffect(() => {
+    if (!publicRealtimeReady || isAdmin || !publicLiveStockKey) return undefined;
+
+    const stockCollections = publicLiveStockKey.split('|').filter(Boolean);
+    if (!stockCollections.length) return undefined;
+
+    const handlePublicReadError = (label, error) => {
+      console.error(`Erreur lecture ${label}:`, error);
+      fetchPublicCatalogFallback(label);
+    };
+
+    const subscriptions = [];
+
+    if (stockCollections.includes('furniture')) {
+      subscriptions.push(onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'furniture'), (snap) => {
+        liveCollectionsRef.current.add('furniture');
+        setItems(mapFurnitureSnap(snap));
+        setResolvedPublicCollections((prev) => ({ ...prev, furniture: true }));
+        if (import.meta.env.DEV) {
+          console.debug('[catalog-live]', 'furniture', snap.size);
+        }
+      }, (error) => {
+        handlePublicReadError('meubles', error);
+      }));
+    }
+
+    if (stockCollections.includes('cutting_boards')) {
+      subscriptions.push(onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'cutting_boards'), (snap) => {
+        liveCollectionsRef.current.add('cutting_boards');
+        setBoardItems(mapBoardsSnap(snap));
+        setResolvedPublicCollections((prev) => ({ ...prev, cutting_boards: true }));
+        if (import.meta.env.DEV) {
+          console.debug('[catalog-live]', 'cutting_boards', snap.size);
+        }
+      }, (error) => {
+        handlePublicReadError('planches', error);
+      }));
+    }
+
+    return () => {
+      subscriptions.forEach((unsubscribe) => unsubscribe());
+      stockCollections.forEach((name) => {
+        liveCollectionsRef.current.delete(name);
+      });
+    };
+  }, [
+    publicRealtimeReady,
+    isAdmin,
+    publicLiveStockKey,
+    fetchPublicCatalogFallback,
+    mapFurnitureSnap,
+    mapBoardsSnap,
+  ]);
 
   // --- LOGIQUE ROUTING & AUTH (Dépend du User) ---
   useEffect(() => {

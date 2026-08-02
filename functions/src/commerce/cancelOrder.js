@@ -8,6 +8,7 @@
 const functions = require('firebase-functions/v1');
 const admin = require('firebase-admin');
 const { APP_ID } = require('../../helpers/config');
+const { invalidatePublicCatalogCache } = require('../public/catalog');
 
 const db = admin.firestore();
 
@@ -20,7 +21,7 @@ exports.cancelOrderClient = functions.https.onCall(async (data, context) => {
     const userId = context.auth.uid;
     const orderRef = db.collection('orders').doc(orderId);
 
-    return db.runTransaction(async (transaction) => {
+    const result = await db.runTransaction(async (transaction) => {
         const orderSnap = await transaction.get(orderRef);
         if (!orderSnap.exists) {
             throw new functions.https.HttpsError('not-found', 'Commande introuvable.');
@@ -45,7 +46,8 @@ exports.cancelOrderClient = functions.https.onCall(async (data, context) => {
             throw new functions.https.HttpsError('failed-precondition', 'Le délai d\'annulation de 7 jours est dépassé.');
         }
 
-        // Restaurer le stock
+        // Toujours restaurer le stock depuis order.items (y compris virement deferred
+        // où stockReserved peut être absent/false alors que le stock a bien été décrémenté).
         if (orderData.items && Array.isArray(orderData.items)) {
             for (const item of orderData.items) {
                 const itemId = item.originalId || item.id;
@@ -57,18 +59,17 @@ exports.cancelOrderClient = functions.https.onCall(async (data, context) => {
 
                     if (itemSnap.exists) {
                         const itemData = itemSnap.data();
-                        // Restaurer le stock réservé (qu'il soit sold=true ou juste décrémenté)
-                        if (itemData.sold || orderData.stockReserved) {
-                            const currentStock = itemData.stock !== undefined ? Number(itemData.stock) : 0;
-                            const qtyToRestore = item.quantity || 1;
-                            const restoredStock = col === 'furniture' ? 1 : currentStock + qtyToRestore;
-                            transaction.update(itemRef, {
-                                stock: restoredStock,
-                                sold: false,
-                                soldAt: admin.firestore.FieldValue.delete(),
-                                buyerId: admin.firestore.FieldValue.delete()
-                            });
-                        }
+                        const currentStock = itemData.stock !== undefined ? Number(itemData.stock) : 0;
+                        const qtyToRestore = item.quantity || 1;
+                        // Meubles uniques : stock fixe à 1. Planches : stock cumulatif.
+                        const restoredStock = col === 'furniture' ? 1 : currentStock + qtyToRestore;
+                        const sold = col === 'furniture' ? false : restoredStock <= 0;
+                        transaction.update(itemRef, {
+                            stock: restoredStock,
+                            sold,
+                            soldAt: admin.firestore.FieldValue.delete(),
+                            buyerId: admin.firestore.FieldValue.delete()
+                        });
                     }
                 }
             }
@@ -78,9 +79,14 @@ exports.cancelOrderClient = functions.https.onCall(async (data, context) => {
         transaction.update(orderRef, {
             status: 'cancelled_by_client',
             cancelledAt: admin.firestore.FieldValue.serverTimestamp(),
-            clientNote: "Annulée par l'acheteur"
+            clientNote: "Annulée par l'acheteur",
+            stockReserved: false
         });
 
         return { success: true };
     });
+
+    // Best-effort : cold load publicCatalog plus frais après restore stock.
+    invalidatePublicCatalogCache();
+    return result;
 });
