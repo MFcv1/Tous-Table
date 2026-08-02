@@ -128,7 +128,7 @@ exports.createOrder = functions.runWith({ secrets: [STRIPE_SECRET_KEY, GMAIL_EMA
                         image: item.image || (itemDb.images && itemDb.images.length > 0 ? itemDb.images[0] : (itemDb.imageUrl || null))
                     });
 
-                    const updates = { stock: newStock, buyerId: userId };
+                    const updates = { stock: newStock, buyerId: userId, updatedAt: admin.firestore.FieldValue.serverTimestamp() };
                     if (isUniqueFurniture || newStock === 0) {
                         updates.sold = true;
                         updates.soldAt = admin.firestore.FieldValue.serverTimestamp();
@@ -315,7 +315,8 @@ exports.createOrder = functions.runWith({ secrets: [STRIPE_SECRET_KEY, GMAIL_EMA
                             stock: currentStock + qtyToRestore,
                             sold: false,
                             soldAt: admin.firestore.FieldValue.delete(),
-                            buyerId: admin.firestore.FieldValue.delete()
+                            buyerId: admin.firestore.FieldValue.delete(),
+                            updatedAt: admin.firestore.FieldValue.serverTimestamp()
                         });
                     }
                     transaction.delete(orderRef);

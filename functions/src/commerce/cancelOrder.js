@@ -68,7 +68,8 @@ exports.cancelOrderClient = functions.https.onCall(async (data, context) => {
                             stock: restoredStock,
                             sold,
                             soldAt: admin.firestore.FieldValue.delete(),
-                            buyerId: admin.firestore.FieldValue.delete()
+                            buyerId: admin.firestore.FieldValue.delete(),
+                            updatedAt: admin.firestore.FieldValue.serverTimestamp()
                         });
                     }
                 }
