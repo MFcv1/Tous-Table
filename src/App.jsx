@@ -1002,7 +1002,7 @@ const AppContent = () => {
     try {
       await addDoc(collection(db, 'users', user.uid, 'cart'), cartItemData);
       setCartInteracted(true);
-      setIsCartOpen(true);
+      // Le sidebar ne s'ouvre plus ici — l'animation fly-to-cart dans ProductDetail le fera
       return true;
     } catch (e) {
       console.error("Error add cart", e);

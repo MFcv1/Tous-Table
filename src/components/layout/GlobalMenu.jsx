@@ -73,8 +73,8 @@ const NeonLabel = React.memo(({ label, isMenuOpen, onComplete }) => {
 
     useEffect(() => {
         if (!isMenuOpen) { clearTimeout(timerRef.current); return; }
-        // Total duration = start delay + (n-1)*stagger + letter duration
-        const totalMs = (NEON_START_DELAY + (label.length - 1) * NEON_LETTER_STAGGER + NEON_LETTER_DURATION) * 1000;
+        // Total duration = start delay + (n-1)*stagger + letter duration + 150ms safety buffer
+        const totalMs = (NEON_START_DELAY + (label.length - 1) * NEON_LETTER_STAGGER + NEON_LETTER_DURATION) * 1000 + 150;
         timerRef.current = setTimeout(() => { onComplete?.(); }, totalMs);
         return () => clearTimeout(timerRef.current);
     }, [isMenuOpen, label.length, onComplete]);
@@ -222,7 +222,12 @@ const MenuItemHover = React.memo(({ item, index, isClicked, darkMode, handlePrem
     const neonColor = neonDone ? 'text-amber-400 hover:text-white' : 'text-stone-400';
     const className = `group flex items-center justify-between w-full py-2 text-left text-4xl md:text-5xl font-light tracking-tighter cursor-pointer active:scale-[0.96] active:opacity-70 ${isClicked ? 'text-amber-500' : isNeonItem ? neonColor : 'text-stone-400 hover:text-white'}`;
 
-    const tapStyle = { transition: 'color 500ms ease, transform 150ms ease-out, opacity 150ms ease-out' };
+    // Neon items : pas de transition sur `color` pour éviter le flash blanc au switch néon → hover
+    const tapStyle = {
+        transition: isNeonItem
+            ? 'transform 150ms ease-out, opacity 150ms ease-out'
+            : 'color 500ms ease, transform 150ms ease-out, opacity 150ms ease-out'
+    };
 
     if (item.href) {
         return (

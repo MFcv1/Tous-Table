@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { ChevronLeft, ChevronRight, Box, ArrowRight, Trophy, Clock, X, Maximize2, ShoppingBag, TreePine, Sparkles, ShieldCheck, Heart } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Box, ArrowRight, Trophy, Clock, X, Maximize2, ShoppingBag, ShoppingCart, TreePine, Sparkles, ShieldCheck, Heart, Check } from 'lucide-react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { db, appId, functions } from '../../firebase/config';
 import { collection, query, orderBy, limit, onSnapshot } from 'firebase/firestore';
@@ -339,6 +339,60 @@ const ArchitecturalProductDetail = ({ item, itemId, isCatalogResolving = false, 
 
     const isInCart = cartItems.some(cartItem => cartItem.originalId === item?.id);
 
+    // ── Fly-to-Cart Animation ──
+    const [flyToCartAnim, setFlyToCartAnim] = useState(null); // { src, startRect, endRect }
+    const [flyPhase, setFlyPhase] = useState('idle'); // 'idle' | 'flying' | 'done'
+    const flyTimeoutRef = useRef(null);
+
+    const handleFlyToCart = async (e) => {
+        // 1) Sauvegarder la position de départ (image produit, ou bouton sur mobile)
+        const isMobile = window.innerWidth < 1024;
+        const imgEl = displayedImageRef.current;
+        const cartEl = document.querySelector('[data-cart-target]');
+        const buttonEl = e?.currentTarget;
+
+        if (!imgEl || !cartEl) {
+            // Fallback : ajouter normalement
+            const ok = await onAddToCart(item);
+            if (ok) onOpenCart();
+            return;
+        }
+
+        const startRect = (isMobile && buttonEl) ? buttonEl.getBoundingClientRect() : imgEl.getBoundingClientRect();
+        const endRect = cartEl.getBoundingClientRect();
+        const imgSrc = imgEl.src;
+
+        // 2) Ajouter au panier (Firestore)
+        const ok = await onAddToCart(item);
+        if (!ok) return;
+
+        // 3) Lancer l'animation
+        setFlyToCartAnim({ src: imgSrc, startRect, endRect });
+        // Force reflow before starting transition
+        requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+                setFlyPhase('flying');
+            });
+        });
+
+        // 4) Cleanup après l'animation
+        clearTimeout(flyTimeoutRef.current);
+        flyTimeoutRef.current = setTimeout(() => {
+            setFlyPhase('done');
+            // Petit pulse sur l'icône panier
+            cartEl.classList.add('scale-125');
+            setTimeout(() => {
+                cartEl.classList.remove('scale-125');
+                setFlyToCartAnim(null);
+                setFlyPhase('idle');
+            }, 300);
+        }, 850); // Durée de l'animation
+    };
+
+    useEffect(() => {
+        return () => clearTimeout(flyTimeoutRef.current);
+    }, []);
+
     // Recommended care products: 4 best oils (huiles), expert tier first
     const recommendedProducts = useMemo(() => {
         if (!affiliateProducts || affiliateProducts.length === 0) return [];
@@ -498,7 +552,7 @@ const ArchitecturalProductDetail = ({ item, itemId, isCatalogResolving = false, 
     );
 
     // --- RENDER ARCHITECTURAL ---
-    return (
+    const mainContent = (
         <div className={`min-h-screen transition-colors duration-700 ${darkMode ? 'bg-[#050605] text-stone-100' : 'bg-[linear-gradient(180deg,#f8f2e8_0%,#fffaf2_48%,#f1e3cf_100%)] text-stone-950'}`}>
             <SEO
                 title={item.name}
@@ -798,13 +852,22 @@ const ArchitecturalProductDetail = ({ item, itemId, isCatalogResolving = false, 
                             ) : !item.auctionActive ? (
                                 isInCart ? (
                                     <button onClick={onOpenCart} className="w-full py-5 text-white font-black text-[11px] uppercase tracking-[0.18em] transition-all flex items-center justify-center gap-4 bg-emerald-600 hover:bg-emerald-700 shadow-lg lg:py-4 lg:text-[10px]" style={{ borderRadius: palette.borderRadius }}>
+                                        <Check size={16} strokeWidth={2.5} />
                                         <span>Voir ma sélection</span>
                                         <ShoppingBag size={16} />
                                     </button>
                                 ) : (
-                                    <button onClick={() => { onAddToCart(item); }} className="w-full py-5 text-white font-black text-[11px] uppercase tracking-[0.18em] hover:bg-emerald-600 transition-all flex items-center justify-center gap-4 bg-black dark:bg-white dark:text-black rounded-none shadow-lg lg:py-4 lg:text-[10px]">
-                                        <span>Acquérir cette pièce</span>
-                                        <ArrowRight size={16} />
+                                    <button
+                                        onClick={handleFlyToCart}
+                                        disabled={flyPhase !== 'idle'}
+                                        className={`w-full py-5 text-white font-black text-[11px] uppercase tracking-[0.18em] transition-all flex items-center justify-center gap-4 rounded-none shadow-lg lg:py-4 lg:text-[10px] ${
+                                            flyPhase !== 'idle'
+                                                ? 'bg-emerald-600 cursor-wait'
+                                                : 'bg-black dark:bg-white dark:text-black hover:bg-stone-800 dark:hover:bg-stone-100'
+                                        }`}
+                                    >
+                                        <ShoppingCart size={16} />
+                                        <span>{flyPhase !== 'idle' ? 'Ajouté !' : 'Ajouter au panier'}</span>
                                     </button>
                                 )
                             ) : !isWinner ? (
@@ -1007,6 +1070,71 @@ const ArchitecturalProductDetail = ({ item, itemId, isCatalogResolving = false, 
                 </div>
             </section>
         </div>
+    );
+
+    // ── Fly-to-Cart Animated Clone (Portal) ──
+    const flyClone = flyToCartAnim && (() => {
+        const { src, startRect, endRect } = flyToCartAnim;
+        const isFlying = flyPhase === 'flying' || flyPhase === 'done';
+
+        // Position cible : centre de l'icône panier
+        const targetX = endRect.left + endRect.width / 2 - 24;
+        const targetY = endRect.top + endRect.height / 2 - 24;
+
+        // Taille initiale : proportionnelle à l'image, max 200px
+        const startSize = Math.min(startRect.width, startRect.height, 200);
+        const startX = startRect.left + startRect.width / 2 - startSize / 2;
+        const startY = startRect.top + startRect.height / 2 - startSize / 2;
+
+        return (
+            <div
+                key="fly-to-cart-clone"
+                style={{
+                    position: 'fixed',
+                    zIndex: 99999,
+                    pointerEvents: 'none',
+                    left: isFlying ? targetX : startX,
+                    top: isFlying ? targetY : startY,
+                    width: isFlying ? 48 : startSize,
+                    height: isFlying ? 48 : startSize,
+                    borderRadius: isFlying ? '50%' : '12px',
+                    overflow: 'hidden',
+                    opacity: flyPhase === 'done' ? 0 : 1,
+                    boxShadow: isFlying
+                        ? '0 0 20px rgba(219, 164, 95, 0.6), 0 0 40px rgba(219, 164, 95, 0.3)'
+                        : '0 25px 60px rgba(0,0,0,0.5)',
+                    transition: [
+                        'left 0.85s cubic-bezier(0.22, 0.68, 0.35, 1)',
+                        'top 0.85s cubic-bezier(0.55, 0, 0.15, 1)',
+                        'width 0.85s cubic-bezier(0.22, 0.68, 0.35, 1)',
+                        'height 0.85s cubic-bezier(0.22, 0.68, 0.35, 1)',
+                        'border-radius 0.85s cubic-bezier(0.22, 0.68, 0.35, 1)',
+                        'box-shadow 0.85s ease',
+                        'opacity 0.3s ease 0.7s',
+                    ].join(', '),
+                    willChange: 'left, top, width, height, border-radius, opacity',
+                }}
+            >
+                <img
+                    src={src}
+                    alt=""
+                    style={{
+                        width: '100%',
+                        height: '100%',
+                        objectFit: 'cover',
+                        transform: isFlying ? 'scale(1.3)' : 'scale(1)',
+                        transition: 'transform 0.85s cubic-bezier(0.22, 0.68, 0.35, 1)',
+                    }}
+                />
+            </div>
+        );
+    })();
+
+    return (
+        <>
+            {mainContent}
+            {flyClone}
+        </>
     );
 };
 

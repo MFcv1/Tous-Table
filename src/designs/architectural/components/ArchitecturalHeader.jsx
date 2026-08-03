@@ -286,7 +286,7 @@ const ArchitecturalHeader = ({
                         </div>
                     )}
 
-                    <button onClick={onOpenCart} className={`relative group ${isGalleryHeader ? 'w-8 h-8 md:w-10 md:h-10' : 'w-9 h-9 md:w-10 md:h-10'} flex items-center justify-center rounded-full border-0 bg-transparent shadow-none transition-colors`} title="Panier">
+                    <button onClick={onOpenCart} data-cart-target className={`relative group ${isGalleryHeader ? 'w-8 h-8 md:w-10 md:h-10' : 'w-9 h-9 md:w-10 md:h-10'} flex items-center justify-center rounded-full border-0 bg-transparent shadow-none transition-all duration-300`} title="Panier">
                         <ShoppingBag size={22} strokeWidth={1.5} className={`transition-colors duration-300 ${isGalleryHeader ? `${galleryHeaderText} group-hover:text-[#b8792f]` : darkMode ? 'text-stone-100 group-hover:text-[#dba45f]' : 'text-stone-900 group-hover:text-amber-600'}`} />
                         {cartCount > 0 && (
                             <span className="absolute -top-0.5 -right-0.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-[#dba45f] px-1 text-[10px] font-black text-black border border-black/50">
