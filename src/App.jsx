@@ -38,6 +38,7 @@ import MarketplaceDiscovery from './components/home/MarketplaceDiscovery';
 import ArchitecturalHeader from './designs/architectural/components/ArchitecturalHeader';
 import GlobalMenu from './components/layout/GlobalMenu';
 import StartupPreloader from './components/layout/StartupPreloader';
+import AuthPanel from './components/auth/AuthPanel';
 import {
   shouldShowStartupPreloader,
   warmupStartupForRoute,
@@ -152,6 +153,9 @@ const AppContent = () => {
 
   // --- iOS viewport height fix (--vh variable for reliable 100vh) ---
   useEffect(() => {
+    if (typeof window !== 'undefined' && 'scrollRestoration' in window.history) {
+      window.history.scrollRestoration = 'manual';
+    }
     const setVh = () => {
       document.documentElement.style.setProperty('--vh', `${window.innerHeight * 0.01}px`);
     };
@@ -210,7 +214,9 @@ const AppContent = () => {
   }, []);
 
   // Cart State
-  const [cartItems, setCartItems] = useState([]);
+  const [cartItems, setCartItems] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('tat_local_cart')) || []; } catch(e) { return []; }
+  });
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [cartInteracted, setCartInteracted] = useState(false); // Prevents initial flash
   const [showOrderSuccess, setShowOrderSuccess] = useState(false);
@@ -235,7 +241,7 @@ const AppContent = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [showAuthSuccess, setShowAuthSuccess] = useState(false);
-  const [pendingItem, setPendingItem] = useState(null);
+  const [pendingCheckout, setPendingCheckout] = useState(false);
   const [showStartupPreloader, setShowStartupPreloader] = useState(() => shouldShowStartupPreloader(initialRouteRef.current));
   const [isFooterVisible, setIsFooterVisible] = useState(false);
   const [publicRealtimeReady, setPublicRealtimeReady] = useState(() => (
@@ -930,32 +936,82 @@ const AppContent = () => {
     }
   }, [items, boardItems, pendingDeepLink]);
 
-  // --- CART SYNC ---
+  // --- CART SYNC AND MIGRATION ---
   useEffect(() => {
     if (user && !user.isAnonymous) {
+      const cartRef = collection(db, 'users', user.uid, 'cart');
+      const localCart = JSON.parse(localStorage.getItem('tat_local_cart')) || [];
+
+      // Setup real-time listener immediately
       console.log("Subscribing to cart for user:", user.uid);
-      // Removing orderBy for debugging to avoid index issues
-      const q = query(collection(db, 'users', user.uid, 'cart'));
-      const unsubCart = onSnapshot(q, (snap) => {
+      const unsubCart = onSnapshot(query(cartRef), (snap) => {
         const items = snap.docs.map(d => ({ id: d.id, ...d.data() }));
         setCartItems(items);
       }, (err) => {
         console.error("Cart sync error:", err);
       });
+
+      // Cleanup duplicates and migrate local cart
+      const cleanupAndMigrate = async () => {
+        try {
+          const snap = await getDocs(cartRef);
+          const existingOriginalIds = new Set();
+          const batch = writeBatch(db);
+          let batchCount = 0;
+
+          // 1. Find duplicates in existing firestore cart
+          snap.docs.forEach(cartDoc => {
+            const data = cartDoc.data();
+            if (existingOriginalIds.has(data.originalId)) {
+              batch.delete(cartDoc.ref);
+              batchCount++;
+            } else {
+              existingOriginalIds.add(data.originalId);
+            }
+          });
+
+          // 2. Migrate local cart
+          if (localCart.length > 0) {
+            for (const item of localCart) {
+              if (existingOriginalIds.has(item.originalId)) continue; // skip duplicate
+
+              const { id, addedAt, ...rest } = item;
+              const firestoreItem = { ...rest, addedAt: serverTimestamp() };
+              const newDocRef = doc(cartRef);
+              batch.set(newDocRef, firestoreItem);
+              batchCount++;
+              existingOriginalIds.add(item.originalId);
+            }
+            localStorage.removeItem('tat_local_cart');
+          }
+
+          if (batchCount > 0) {
+            await batch.commit();
+          }
+        } catch (e) {
+          console.error("Cart sync/migration error:", e);
+        }
+      };
+
+      cleanupAndMigrate();
+
       return () => unsubCart();
     } else {
-      setCartItems([]);
+      const localCart = JSON.parse(localStorage.getItem('tat_local_cart')) || [];
+      setCartItems(localCart);
     }
   }, [user]);
 
-  // --- AUTO-ADD PENDING ITEM AFTER LOGIN ---
+
+
+  // --- AUTO-REDIRECT TO CHECKOUT AFTER LOGIN ---
   useEffect(() => {
-    if (user && !user.isAnonymous && pendingItem) {
-      console.log("Adding pending item to cart after login:", pendingItem.name);
-      addToCart(pendingItem);
-      setPendingItem(null);
+    if (user && !user.isAnonymous && pendingCheckout) {
+      setView('checkout');
+      scrollToTop();
+      setPendingCheckout(false);
     }
-  }, [user, pendingItem]);
+  }, [user, pendingCheckout]);
 
   // --- ACTIONS ---
   // Admin actions moved to Router.jsx
@@ -970,15 +1026,6 @@ const AppContent = () => {
 
   // --- CART ACTIONS ---
   const addToCart = async (item) => {
-    // console.log("Add to cart clicked", user);
-    if (!user || user.isAnonymous) {
-      // console.log("User is not logged in or anonymous, showing login modal");
-      setPendingItem(item); // Store for after login
-      setShowFullLogin(true);
-      return false;
-    }
-
-    // [NEW] Check Stock Limit
     const currentStock = item.stock !== undefined ? Number(item.stock) : 1;
     const inCartCount = cartItems.filter(c => c.originalId === item.id).length;
 
@@ -987,32 +1034,45 @@ const AppContent = () => {
       return false;
     }
 
+    const isAnonymous = !user || user.isAnonymous;
     const cartItemData = {
+      id: isAnonymous ? `local_${Date.now()}_${Math.random().toString(36).substr(2, 9)}` : undefined,
       originalId: item.id,
-      collectionName: item.collectionName || 'furniture', // [NEW] Save collection
+      collectionName: item.collectionName || 'furniture',
       name: item.name,
       price: item.currentPrice || item.startingPrice,
       image: item.images?.[0] || item.imageUrl,
       material: item.material || 'Bois',
-      quantity: 1, // [FIX] Required by Firestore Rules
-      addedAt: serverTimestamp()
+      quantity: 1,
+      addedAt: isAnonymous ? Date.now() : serverTimestamp()
     };
 
-
-    try {
-      await addDoc(collection(db, 'users', user.uid, 'cart'), cartItemData);
+    if (isAnonymous) {
+      const newCart = [...cartItems, cartItemData];
+      setCartItems(newCart);
+      localStorage.setItem('tat_local_cart', JSON.stringify(newCart));
       setCartInteracted(true);
-      // Le sidebar ne s'ouvre plus ici — l'animation fly-to-cart dans ProductDetail le fera
       return true;
-    } catch (e) {
-      console.error("Error add cart", e);
-      toast("Erreur ajout panier : " + e.message, { type: 'error' });
-      return false;
+    } else {
+      try {
+        await addDoc(collection(db, 'users', user.uid, 'cart'), cartItemData);
+        setCartInteracted(true);
+        return true;
+      } catch (e) {
+        console.error("Error add cart", e);
+        toast("Erreur ajout panier : " + e.message, { type: 'error' });
+        return false;
+      }
     }
   };
 
   const removeFromCart = async (cartDocId) => {
-    if (!user) return;
+    if (!user || user.isAnonymous) {
+      const newCart = cartItems.filter(item => item.id !== cartDocId);
+      setCartItems(newCart);
+      localStorage.setItem('tat_local_cart', JSON.stringify(newCart));
+      return;
+    }
     await deleteDoc(doc(db, 'users', user.uid, 'cart', cartDocId));
   };
 
@@ -1024,10 +1084,16 @@ const AppContent = () => {
     // We just need to clear the local cart now.
 
     // 2. Clear Cart (Batch)
-    // Note: In a real app we would use a batch, but loop is fine for small carts
-    // We already have cartItems in state
-    for (const item of cartItems) {
-      await deleteDoc(doc(db, 'users', user.uid, 'cart', item.id));
+    try {
+      if (cartItems.length > 0) {
+        const batch = writeBatch(db);
+        cartItems.forEach(item => {
+          batch.delete(doc(db, 'users', user.uid, 'cart', item.id));
+        });
+        await batch.commit();
+      }
+    } catch (e) {
+      console.error("Error clearing cart after order:", e);
     }
 
     // 3. Handle Payment Redirect or Success
@@ -1098,7 +1164,11 @@ const AppContent = () => {
         cartItems={cartItems}
         onRemoveItem={removeFromCart}
         totalPrice={cartTotal}
-        onCheckout={() => { setIsCartOpen(false); setView('checkout'); scrollToTop(); }}
+        onCheckout={() => {
+          setIsCartOpen(false);
+          setView('checkout');
+          scrollToTop();
+        }}
         interacted={cartInteracted}
         darkMode={darkMode}
         activeDesignId={activeDesignId}
@@ -1114,164 +1184,11 @@ const AppContent = () => {
             <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_20%_0%,rgba(245,174,80,0.16),transparent_34%),linear-gradient(135deg,rgba(255,255,255,0.07),transparent_36%)]"></div>
             <div className="pointer-events-none absolute inset-x-6 top-0 h-px bg-gradient-to-r from-transparent via-amber-300/45 to-transparent"></div>
 
-            {showAuthSuccess ? (
-              <div className="relative p-5 md:p-8 space-y-5 md:space-y-6 text-center animate-in fade-in slide-in-from-bottom-4">
-                <div className="mx-auto inline-flex items-center gap-3 rounded-full border border-white/10 bg-white/[0.04] px-3 py-2">
-                  <span className="flex h-8 w-8 items-center justify-center rounded-full bg-amber-300/10 text-amber-200 ring-1 ring-amber-200/20">
-                    <Hammer size={15} />
-                  </span>
-                  <span className="text-left">
-                    <span className="block text-[11px] font-black uppercase tracking-[0.18em] text-white">Tous à Table</span>
-                    <span className="block font-serif text-[11px] italic text-stone-400">Atelier Normand</span>
-                  </span>
-                </div>
-                <div className="w-16 h-16 bg-emerald-400/10 rounded-2xl flex items-center justify-center mx-auto text-emerald-300 border border-emerald-300/20 shadow-[0_0_35px_rgba(52,211,153,0.14)]">
-                  <ShieldCheck size={34} />
-                </div>
-                <div className="space-y-2">
-                  <h3 className="text-2xl font-black tracking-tight text-white">Vérifiez vos emails</h3>
-                  <p className="text-sm text-stone-300 font-medium px-2 leading-relaxed">
-                    Un lien de confirmation vient d'être envoyé. <br />
-                    <span className="text-amber-200 font-bold">Pensez à regarder dans vos spams.</span>
-                  </p>
-                </div>
-                <button onClick={() => { setShowFullLogin(false); setShowAuthSuccess(false); }} className="w-full py-4 rounded-2xl bg-white text-stone-950 font-black uppercase text-[10px] tracking-[0.2em] transition-all hover:bg-amber-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-200">
-                  C'est compris
-                </button>
-              </div>
-            ) : (
-              <div className="relative">
-                <button
-                  type="button"
-                  onClick={() => setShowFullLogin(false)}
-                  className="absolute right-4 top-4 z-10 flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-white/[0.04] text-stone-400 transition-all hover:bg-white/[0.08] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-200 md:h-10 md:w-10"
-                  aria-label="Fermer la connexion"
-                >
-                  <X size={18} />
-                </button>
-
-                {/* HEADER */}
-                <div className="px-5 pb-4 pt-5 border-b border-white/10 md:px-8 md:pb-5 md:pt-8">
-                  <div className="mb-4 flex items-center justify-between gap-4 pr-10 md:mb-7 md:pr-11">
-                    <div className="flex items-center gap-3">
-                      <div className="flex h-9 w-9 items-center justify-center rounded-2xl border border-amber-200/20 bg-amber-300/10 text-amber-200 shadow-[0_0_30px_rgba(245,174,80,0.10)] md:h-10 md:w-10">
-                        <Hammer size={17} />
-                      </div>
-                      <div className="text-left leading-none">
-                        <p className="text-[13px] font-black uppercase tracking-[0.18em] text-white">Tous à Table</p>
-                        <p className="mt-1 font-serif text-xs italic text-stone-400">Atelier Normand</p>
-                      </div>
-                    </div>
-                    <span className="hidden rounded-full border border-emerald-300/20 bg-emerald-300/10 px-2.5 py-1 text-[9px] font-black uppercase tracking-[0.18em] text-emerald-200 md:inline-flex">Sécurisé</span>
-                  </div>
-
-                  <div className="space-y-2 text-left md:space-y-3">
-                    <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-[9px] font-black uppercase tracking-[0.18em] text-amber-200 md:py-1.5">
-                      <ShieldCheck size={12} />
-                      Accès vente
-                    </div>
-                    <h3 className="text-[1.7rem] font-black leading-none tracking-tight text-white md:text-[2rem]">Connexion</h3>
-                    <p className="max-w-[31ch] text-[13px] font-medium leading-snug text-stone-400 md:text-sm md:leading-relaxed">Identifiez-vous pour accéder à la vente et retrouver vos pièces sélectionnées.</p>
-                  </div>
-                </div>
-
-                <div className="space-y-4 px-5 py-4 md:space-y-5 md:px-8 md:py-7">
-                {/* FORMULAIRE EMAIL */}
-                <form onSubmit={async (e) => {
-                  e.preventDefault();
-                  const email = e.target.email.value;
-                  const pass = e.target.password.value;
-                  const confirmPass = e.target.confirmPassword?.value;
-                  const isSignUp = e.target.getAttribute('data-signup') === 'true';
-
-                  try {
-                    if (isSignUp) {
-                      if (pass !== confirmPass) throw new Error("Les mots de passe ne correspondent pas.");
-                      const userCredential = await signupWithEmail(email, pass);
-                      await verifyEmail(userCredential.user);
-                      setShowAuthSuccess(true);
-                    } else {
-                      await loginWithEmail(email, pass);
-                      setShowFullLogin(false);
-                    }
-                  } catch (err) {
-                    let msg = "Une erreur est survenue.";
-                    if (err.code === 'auth/email-already-in-use') msg = "Cet email est déjà associé à un compte. Connectez-vous.";
-                    else if (err.code === 'auth/weak-password') msg = "Le mot de passe doit contenir au moins 6 caractères.";
-                    else if (err.code === 'auth/invalid-email') msg = "L'adresse email n'est pas valide.";
-                    else if (err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password' || err.code === 'auth/invalid-credential') msg = "Email ou mot de passe incorrect.";
-
-                    toast(msg, { type: 'error' });
-                  }
-                }} className="space-y-2.5 md:space-y-3" data-signup="false" data-auth-form="marketplace">
-
-                  <input name="email" type="email" placeholder="Adresse email" className="w-full rounded-2xl bg-white/[0.055] border border-white/10 px-4 py-3.5 font-bold text-sm outline-none transition-all text-white placeholder:text-stone-500 hover:bg-white/[0.075] focus:border-amber-200/60 focus:ring-2 focus:ring-amber-200/20 md:p-4 md:text-base" required autoComplete="email" />
-
-                  <div className="relative">
-                    <input name="password" type={showPassword ? "text" : "password"} placeholder="Mot de passe" className="w-full rounded-2xl bg-white/[0.055] border border-white/10 px-4 py-3.5 pr-12 font-bold text-sm outline-none transition-all text-white placeholder:text-stone-500 hover:bg-white/[0.075] focus:border-amber-200/60 focus:ring-2 focus:ring-amber-200/20 md:p-4 md:pr-12 md:text-base" required autoComplete="current-password" />
-                    <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-4 top-1/2 -translate-y-1/2 text-stone-500 transition-colors hover:text-amber-100 focus-visible:outline-none focus-visible:text-amber-100">
-                      {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
-                    </button>
-                  </div>
-
-                  <div id="confirm-pass-container" className="hidden transition-all duration-300 overflow-hidden" style={{ maxHeight: '0px' }}>
-                    <div className="relative mb-2.5 md:mb-3">
-                      <input name="confirmPassword" type={showConfirmPassword ? "text" : "password"} placeholder="Confirmer mot de passe" className="w-full rounded-2xl bg-white/[0.055] border border-white/10 px-4 py-3.5 pr-12 font-bold text-sm outline-none transition-all text-white placeholder:text-stone-500 hover:bg-white/[0.075] focus:border-amber-200/60 focus:ring-2 focus:ring-amber-200/20 md:p-4 md:pr-12 md:text-base" autoComplete="new-password" />
-                      <button type="button" onClick={() => setShowConfirmPassword(!showConfirmPassword)} className="absolute right-4 top-1/2 -translate-y-1/2 text-stone-500 transition-colors hover:text-amber-100 focus-visible:outline-none focus-visible:text-amber-100">
-                        {showConfirmPassword ? <EyeOff size={20} /> : <Eye size={20} />}
-                      </button>
-                    </div>
-                  </div>
-
-                  <button type="submit" className="w-full rounded-2xl bg-white py-3.5 text-stone-950 font-black uppercase text-[10px] tracking-[0.22em] transition-all hover:bg-amber-100 active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-200 md:py-4">
-                    <span id="btn-text">Continuer</span>
-                  </button>
-                </form>
-
-                {/* DIVIDER */}
-                <div className="flex items-center gap-4">
-                  <div className="h-px bg-white/10 flex-1"></div>
-                  <span className="text-[9px] font-black uppercase tracking-[0.2em] text-stone-600">OU</span>
-                  <div className="h-px bg-white/10 flex-1"></div>
-                </div>
-
-                {/* GOOGLE */}
-                <button onClick={() => handleSocialLogin(googleProvider)} className="group w-full flex items-center justify-center gap-3 rounded-2xl border border-white/10 bg-white/[0.07] px-4 py-3.5 font-bold text-white transition-all hover:border-white/20 hover:bg-white/[0.11] active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-200/70 md:p-4">
-                  <div className="bg-white rounded-full p-1 shadow-sm"><img src="https://www.google.com/favicon.ico" className="w-3 h-3" alt="G" /></div>
-                  <span>Continuer avec Google</span>
-                </button>
-
-                {/* FOOTER ACTIONS */}
-                <div className="flex justify-between items-center px-1 pt-1">
-                  <button onClick={() => {
-                    const form = document.querySelector('[data-auth-form="marketplace"]');
-                    const container = document.getElementById('confirm-pass-container');
-                    const isSignUp = form.getAttribute('data-signup') === 'true';
-
-                    form.setAttribute('data-signup', !isSignUp);
-
-                    if (!isSignUp) { // Opening
-                      container.classList.remove('hidden');
-                      void container.offsetWidth;
-                      container.style.maxHeight = '100px';
-                      document.querySelector('input[name="confirmPassword"]').required = true;
-                      setTimeout(() => { container.style.overflow = 'visible'; }, 300);
-                    } else { // Closing
-                      container.style.overflow = 'hidden';
-                      container.style.maxHeight = '0px';
-                      setTimeout(() => container.classList.add('hidden'), 300);
-                      document.querySelector('input[name="confirmPassword"]').required = false;
-                    }
-
-                    document.getElementById('btn-text').innerText = !isSignUp ? "S'inscrire" : "Continuer";
-                    document.getElementById('toggle-text').innerText = !isSignUp ? "J'ai déjà un compte" : "Pas de compte ?";
-                  }} className="text-[10px] font-bold text-stone-500 transition-colors hover:text-amber-100 focus-visible:outline-none focus-visible:text-amber-100" id="toggle-text">Pas de compte ?</button>
-
-                  <button onClick={() => setShowFullLogin(false)} className="text-[10px] font-black uppercase tracking-[0.16em] text-stone-500 transition-colors hover:text-red-300 focus-visible:outline-none focus-visible:text-red-300">Annuler</button>
-                </div>
-                </div>
-              </div>
-            )}
+            <AuthPanel 
+              onClose={() => setShowFullLogin(false)}
+              onSuccess={() => setShowFullLogin(false)}
+              darkMode={darkMode}
+            />
           </div>
         </div>
       )}
@@ -1370,7 +1287,7 @@ const AppContent = () => {
       }
 
       {/* --- CONTENU PRINCIPAL --- */}
-      <main>
+      <main className={`transition-all duration-700 ease-in-out ${isCartOpen ? 'scale-[0.98] blur-sm opacity-50' : ''}`}>
         <AppRouter
           view={view}
           setView={setView}

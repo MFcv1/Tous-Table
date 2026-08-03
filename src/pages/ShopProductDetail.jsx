@@ -247,6 +247,20 @@ const ShopProductDetail = ({ product, isLoading = false, darkMode = false, onBac
     const pagePath = useMemo(() => product ? getShopProductPath(product) : '/comptoir', [product]);
     const sourceLabels = useMemo(() => safeItems(draft.sourceUrls).map(hostLabel), [draft.sourceUrls]);
 
+    // WAKE UP & RESET SCROLL
+    useEffect(() => {
+        const resetScroll = () => {
+            window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
+            if (window.scrollY > 0) window.scrollTo(0, 0);
+        };
+        resetScroll();
+        const t1 = setTimeout(resetScroll, 10);
+        const t2 = setTimeout(resetScroll, 50);
+        const t3 = setTimeout(resetScroll, 150);
+        const t4 = setTimeout(resetScroll, 300);
+        return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3); clearTimeout(t4); };
+    }, [product?.id]);
+
     useGSAP(() => {
         const root = rootRef.current;
         if (!root) return undefined;

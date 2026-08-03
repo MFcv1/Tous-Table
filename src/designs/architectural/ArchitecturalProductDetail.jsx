@@ -13,7 +13,7 @@ import { useLiveTheme } from '../../hooks/useLiveTheme';
 import AnimatedPrice from '../../components/ui/AnimatedPrice';
 import ShopProductCard from '../../components/shop/ShopProductCard';
 import LazyYouTubeEmbed from '../../components/ui/LazyYouTubeEmbed';
-import { lockPageScroll } from '../../utils/smoothScroll';
+import { lockPageScroll, scrollToTop } from '../../utils/smoothScroll';
 
 const RECOMMENDED_TUTORIALS = [
     { videoId: "ictKhF92-pY", label: "Comment appliquer Rubio Monocoat Oil Plus 2C sur un meuble", productMatch: "Rubio Monocoat" },
@@ -125,11 +125,23 @@ const ArchitecturalProductDetail = ({ item, itemId, isCatalogResolving = false, 
         }
     };
 
-    // WAKE UP CLOUD FUNCTIONS (Anti-Cold Start)
+    // WAKE UP CLOUD FUNCTIONS (Anti-Cold Start) & RESET SCROLL
     useEffect(() => {
+        const resetScroll = () => {
+            window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
+            // Fallback for browsers that don't support 'instant'
+            if (window.scrollY > 0) window.scrollTo(0, 0);
+        };
+        resetScroll();
+        const t1 = setTimeout(resetScroll, 10);
+        const t2 = setTimeout(resetScroll, 50);
+        const t3 = setTimeout(resetScroll, 150);
+        const t4 = setTimeout(resetScroll, 300);
+
         if (item?.auctionActive) {
             wakeUpFunction().catch(() => { }); // Silent ping
         }
+        return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3); clearTimeout(t4); };
     }, [item?.id]);
 
     // SYNC WITH GLOBAL HEADER (Clear tabs on detail view)

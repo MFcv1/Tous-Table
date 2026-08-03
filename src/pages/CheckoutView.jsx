@@ -156,14 +156,36 @@ const CheckoutView = ({ cartItems, total, user, darkMode = false, onBack, onPlac
     const toast = useToast();
     const cardPaymentsEnabledByBuild = import.meta.env.VITE_STRIPE_CARD_PAYMENTS_ENABLED !== 'false';
     // --- STATE ---
+    const [clientType, setClientType] = useState('particulier'); // 'particulier' | 'entreprise'
+    const [isRecapModalOpen, setIsRecapModalOpen] = useState(false);
+    const [isInfoValidated, setIsInfoValidated] = useState(false);
+    
     const [formData, setFormData] = useState({
-        fullName: user?.displayName || '',
-        email: user?.email || '',
+        // Champs Particulier
+        firstName: user?.displayName ? user.displayName.split(' ')[0] : '',
+        lastName: user?.displayName ? user.displayName.split(' ').slice(1).join(' ') : '',
         phone: '',
+        email: user?.email || '',
         address: '',
-        city: '',
+        addressComplement: '',
         zip: '',
-        country: 'France'
+        city: '',
+        country: 'France',
+        createAccount: false,
+        // Champs Entreprise
+        companyName: '',
+        contactFirstName: '',
+        contactLastName: '',
+        companyPhone: '',
+        companyEmail: '',
+        siret: '',
+        tva: '',
+        companyAddress: '',
+        companyAddressComplement: '',
+        companyZip: '',
+        companyCity: '',
+        companyCountry: 'France',
+        useAsBillingAddress: false,
     });
     
     const [stripeEnabled, setStripeEnabled] = useState(() => {
@@ -344,11 +366,15 @@ const CheckoutView = ({ cartItems, total, user, darkMode = false, onBack, onPlac
     const handleAddressRelatedChange = (e) => {
         const { name, value } = e.target;
         setFormData(prev => ({ ...prev, [name]: value }));
+        setIsInfoValidated(false);
         if (checkoutState === 'ready_to_pay') setCheckoutState('editing');
 
         // Build query using the latest value for the changed field
         const newForm = { ...formData, [name]: value };
-        const query = [newForm.address, newForm.zip, newForm.city].filter(Boolean).join(' ');
+        const isComp = clientType === 'entreprise';
+        const query = isComp 
+            ? [newForm.companyAddress, newForm.companyZip, newForm.companyCity].filter(Boolean).join(' ')
+            : [newForm.address, newForm.zip, newForm.city].filter(Boolean).join(' ');
 
         if (searchTimeout.current) clearTimeout(searchTimeout.current);
         searchTimeout.current = setTimeout(() => {
@@ -361,11 +387,19 @@ const CheckoutView = ({ cartItems, total, user, darkMode = false, onBack, onPlac
         const cityValue = suggestion.properties.city || '';
         const addressValue = suggestion.properties.name || '';
 
+        const isComp = clientType === 'entreprise';
+
         setFormData(prev => ({
             ...prev,
-            address: addressValue,
-            zip: zipValue,
-            city: cityValue
+            ...(isComp ? {
+                companyAddress: addressValue,
+                companyZip: zipValue,
+                companyCity: cityValue
+            } : {
+                address: addressValue,
+                zip: zipValue,
+                city: cityValue
+            })
         }));
         setSuggestions([]);
         setShowSuggestions(false);
@@ -423,17 +457,23 @@ const CheckoutView = ({ cartItems, total, user, darkMode = false, onBack, onPlac
 
     // --- ON CHANGE FORM ---
     const handleChange = (e) => {
-        const { name, value } = e.target;
-        setFormData(prev => ({ ...prev, [name]: value }));
+        const { name, value, type, checked } = e.target;
+        setFormData(prev => ({ ...prev, [name]: type === 'checkbox' ? checked : value }));
+        setIsInfoValidated(false); // Reset validation when user modifies form
         if (checkoutState === 'ready_to_pay') {
             setCheckoutState('editing');
         }
     };
 
     const isFormValid = useMemo(() => {
-        return formData.fullName.trim() && formData.email.trim() && formData.phone.trim() &&
-               formData.address.trim() && formData.city.trim() && formData.zip.trim();
-    }, [formData]);
+        if (clientType === 'particulier') {
+            return formData.firstName.trim() && formData.lastName.trim() && formData.email.trim() && formData.phone.trim() &&
+                   formData.address.trim() && formData.city.trim() && formData.zip.trim();
+        } else {
+            return formData.companyName.trim() && formData.companyEmail.trim() && formData.companyPhone.trim() &&
+                   formData.siret.trim() && formData.companyAddress.trim() && formData.companyCity.trim() && formData.companyZip.trim();
+        }
+    }, [formData, clientType]);
 
     // --- SUBMIT ACTION : FETCH STRIPE OU CONFIRM DEFERRED ---
     const handleActionClick = async () => {
@@ -456,9 +496,17 @@ const CheckoutView = ({ cartItems, total, user, darkMode = false, onBack, onPlac
                 collectionName: i.collectionName || 'furniture'
             }));
 
+            const shippingPayload = {
+                ...formData,
+                clientType,
+                fullName: clientType === 'particulier'
+                    ? `${formData.firstName} ${formData.lastName}`.trim()
+                    : formData.companyName
+            };
+
             const result = await createOrder({
                 orderData: {
-                    shipping: formData,
+                    shipping: shippingPayload,
                     paymentMethod,
                     items: itemsWithCol,
                     total
@@ -608,95 +656,140 @@ const CheckoutView = ({ cartItems, total, user, darkMode = false, onBack, onPlac
                     <div className="space-y-6 w-full">
                         
                         {/* GROUPE 1 : INFOS & ADRESSE COMBINÉS */}
+                        {/* GROUPE 1 : INFOS & ADRESSE COMBINÉS */}
                         <div className={cardClasses}>
                             <h3 className="text-[10px] md:text-xs font-black uppercase tracking-widest text-stone-400 flex items-center gap-2 mb-4">
                                 <Truck size={14} /> Informations de Livraison
                             </h3>
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-4">
-                                <div>
-                                    <label htmlFor="checkout-fullName" className="sr-only">Nom complet</label>
-                                    <input id="checkout-fullName" name="fullName" value={formData.fullName} onChange={handleChange} placeholder="Nom complet" className={inputClasses} required />
-                                </div>
-                                <div>
-                                    <label htmlFor="checkout-phone" className="sr-only">Téléphone</label>
-                                    <input id="checkout-phone" name="phone" value={formData.phone} onChange={handleChange} placeholder="Téléphone" className={inputClasses} required />
-                                </div>
+
+                            {/* TOGGLE PARTICULIER / ENTREPRISE */}
+                            <div className={`flex p-1 rounded-xl mb-6 ${darkMode ? 'bg-stone-950 border border-stone-800' : 'bg-stone-100'}`}>
+                                <button
+                                    onClick={() => setClientType('particulier')}
+                                    className={`flex-1 py-2 text-sm font-bold rounded-lg transition-colors ${clientType === 'particulier' ? (darkMode ? 'bg-stone-800 text-white shadow-sm' : 'bg-white text-stone-900 shadow-sm') : (darkMode ? 'text-stone-500 hover:text-stone-300' : 'text-stone-500 hover:text-stone-700')}`}
+                                >
+                                    Particulier
+                                </button>
+                                <button
+                                    onClick={() => setClientType('entreprise')}
+                                    className={`flex-1 py-2 text-sm font-bold rounded-lg transition-colors ${clientType === 'entreprise' ? (darkMode ? 'bg-stone-800 text-white shadow-sm' : 'bg-white text-stone-900 shadow-sm') : (darkMode ? 'text-stone-500 hover:text-stone-300' : 'text-stone-500 hover:text-stone-700')}`}
+                                >
+                                    Entreprise
+                                </button>
                             </div>
-                            <div>
-                                <label htmlFor="checkout-email" className="sr-only">Email</label>
-                                <input id="checkout-email" name="email" value={formData.email} onChange={handleChange} placeholder="Email" type="email" className={inputClasses} required />
-                            </div>
-                            
-                            {/* ADRESSE AVEC AUTOCOMPLÉTION INTELLIGENTE */}
-                            <div className="flex flex-col gap-3 md:gap-4" ref={suggestionRef}>
-                                <div>
-                                    <label htmlFor="checkout-address" className="sr-only">Adresse (N°, Rue)</label>
-                                    <input
-                                        id="checkout-address"
-                                        ref={addressInputRef}
-                                        name="address"
-                                        value={formData.address}
-                                        onChange={handleAddressRelatedChange}
-                                        onFocus={(e) => {
-                                            e.target.select();
-                                            if (suggestions.length > 0) { updateDropdownPosition(); setShowSuggestions(true); }
+
+                            {clientType === 'particulier' ? (
+                                <div className="space-y-4">
+                                    <div className="grid grid-cols-2 gap-3 md:gap-4">
+                                        <input name="firstName" value={formData.firstName} onChange={handleChange} placeholder="Prénom" className={inputClasses} required />
+                                        <input name="lastName" value={formData.lastName} onChange={handleChange} placeholder="Nom" className={inputClasses} required />
+                                    </div>
+                                    <input name="phone" value={formData.phone} onChange={handleChange} placeholder="Téléphone" className={inputClasses} required />
+                                    <input name="email" value={formData.email} onChange={handleChange} placeholder="E-mail" type="email" className={inputClasses} required />
+                                    
+                                    <div className="flex flex-col gap-3 md:gap-4" ref={suggestionRef}>
+                                        <input
+                                            ref={addressInputRef}
+                                            name="address"
+                                            value={formData.address}
+                                            onChange={handleAddressRelatedChange}
+                                            onFocus={(e) => { e.target.select(); if (suggestions.length > 0) { updateDropdownPosition(); setShowSuggestions(true); } }}
+                                            placeholder="Adresse (N°, Rue)"
+                                            className={inputClasses}
+                                            required
+                                            autoComplete="off"
+                                        />
+                                        {showSuggestions && suggestions.length > 0 && dropdownPos.mobile && (
+                                            <div ref={dropdownRef} className="-mt-1 mb-1 md:hidden">
+                                                {renderAddressSuggestions({ mobile: true })}
+                                            </div>
+                                        )}
+                                        <input name="addressComplement" value={formData.addressComplement} onChange={handleChange} placeholder="Complément d'adresse (optionnel)" className={inputClasses} />
+                                        
+                                        <div className="grid grid-cols-2 gap-3 md:gap-4">
+                                            <input name="zip" value={formData.zip} onChange={handleAddressRelatedChange} onFocus={(e) => { e.target.select(); if (suggestions.length > 0) { updateDropdownPosition(); setShowSuggestions(true); } }} placeholder="Code postal" className={inputClasses} required inputMode="numeric" autoComplete="off" />
+                                            <input name="city" value={formData.city} onChange={handleAddressRelatedChange} onFocus={(e) => { e.target.select(); if (suggestions.length > 0) { updateDropdownPosition(); setShowSuggestions(true); } }} placeholder="Ville" className={inputClasses} required autoComplete="off" />
+                                        </div>
+                                    </div>
+                                    
+                                    <select name="country" value={formData.country} onChange={handleChange} className={`${inputClasses} pr-12 appearance-none`} style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3E%3Cpath stroke='%236b7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3E%3C/svg%3E")`, backgroundPosition: `right 1.5rem center`, backgroundRepeat: `no-repeat`, backgroundSize: `1.5em 1.5em` }}>
+                                        <option value="France">France</option>
+                                    </select>
+                                </div>
+                            ) : (
+                                <div className="space-y-4">
+                                    <input name="companyName" value={formData.companyName} onChange={handleChange} placeholder="Raison sociale" className={inputClasses} required />
+                                    <div className="grid grid-cols-2 gap-3 md:gap-4">
+                                        <input name="contactFirstName" value={formData.contactFirstName} onChange={handleChange} placeholder="Prénom du contact" className={inputClasses} required />
+                                        <input name="contactLastName" value={formData.contactLastName} onChange={handleChange} placeholder="Nom du contact" className={inputClasses} required />
+                                    </div>
+                                    <input name="companyPhone" value={formData.companyPhone} onChange={handleChange} placeholder="Téléphone professionnel" className={inputClasses} required />
+                                    <input name="companyEmail" value={formData.companyEmail} onChange={handleChange} placeholder="E-mail professionnel" type="email" className={inputClasses} required />
+                                    <input name="siret" value={formData.siret} onChange={handleChange} placeholder="N° SIRET" className={inputClasses} required />
+                                    <input name="tva" value={formData.tva} onChange={handleChange} placeholder="N° TVA intracommunautaire (optionnel)" className={inputClasses} />
+                                    
+                                    <div className="flex flex-col gap-3 md:gap-4" ref={suggestionRef}>
+                                        <input
+                                            ref={addressInputRef}
+                                            name="companyAddress"
+                                            value={formData.companyAddress}
+                                            onChange={handleAddressRelatedChange}
+                                            onFocus={(e) => { e.target.select(); if (suggestions.length > 0) { updateDropdownPosition(); setShowSuggestions(true); } }}
+                                            placeholder="Adresse de l'entreprise"
+                                            className={inputClasses}
+                                            required
+                                            autoComplete="off"
+                                        />
+                                        {showSuggestions && suggestions.length > 0 && dropdownPos.mobile && (
+                                            <div ref={dropdownRef} className="-mt-1 mb-1 md:hidden">
+                                                {renderAddressSuggestions({ mobile: true })}
+                                            </div>
+                                        )}
+                                        <input name="companyAddressComplement" value={formData.companyAddressComplement} onChange={handleChange} placeholder="Complément d'adresse (optionnel)" className={inputClasses} />
+                                        
+                                        <div className="grid grid-cols-2 gap-3 md:gap-4">
+                                            <input name="companyZip" value={formData.companyZip} onChange={handleAddressRelatedChange} onFocus={(e) => { e.target.select(); if (suggestions.length > 0) { updateDropdownPosition(); setShowSuggestions(true); } }} placeholder="Code postal" className={inputClasses} required inputMode="numeric" autoComplete="off" />
+                                            <input name="companyCity" value={formData.companyCity} onChange={handleAddressRelatedChange} onFocus={(e) => { e.target.select(); if (suggestions.length > 0) { updateDropdownPosition(); setShowSuggestions(true); } }} placeholder="Ville" className={inputClasses} required autoComplete="off" />
+                                        </div>
+                                    </div>
+                                    
+                                    <select name="companyCountry" value={formData.companyCountry} onChange={handleChange} className={`${inputClasses} pr-12 appearance-none`} style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3E%3Cpath stroke='%236b7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3E%3C/svg%3E")`, backgroundPosition: `right 1.5rem center`, backgroundRepeat: `no-repeat`, backgroundSize: `1.5em 1.5em` }}>
+                                        <option value="France">France</option>
+                                    </select>
+                                    
+                                    <label className="flex items-center gap-3 cursor-pointer mt-4">
+                                        <input type="checkbox" name="useAsBillingAddress" checked={formData.useAsBillingAddress} onChange={handleChange} className="w-5 h-5 accent-amber-500 rounded bg-stone-900 border-stone-800" />
+                                        <span className={`text-sm font-medium ${darkMode ? 'text-stone-300' : 'text-stone-700'}`}>Utiliser cette adresse comme adresse de facturation</span>
+                                    </label>
+                                </div>
+                            )}
+
+                            {/* BOUTON VALIDER MES INFORMATIONS */}
+                            {!isInfoValidated && (
+                                <div className={`pt-6 mt-4 border-t ${darkMode ? 'border-stone-800' : 'border-stone-200'}`}>
+                                    <button
+                                        onClick={() => {
+                                            if (isFormValid) setIsRecapModalOpen(true);
+                                            else toast("Veuillez remplir tous les champs obligatoires.", { type: 'warning' });
                                         }}
-                                        placeholder="Adresse (N°, Rue)"
-                                        className={inputClasses}
-                                        required
-                                        autoComplete="off"
-                                    />
+                                        className={`w-full py-4 rounded-xl font-black uppercase text-[10px] md:text-xs tracking-widest transition-all ${isFormValid ? (darkMode ? 'bg-white text-stone-900 hover:bg-stone-200' : 'bg-stone-900 text-white hover:bg-stone-800') : (darkMode ? 'bg-stone-800 text-stone-500 cursor-not-allowed' : 'bg-stone-200 text-stone-400 cursor-not-allowed')}`}
+                                    >
+                                        Valider mes informations
+                                    </button>
                                 </div>
-
-                                {showSuggestions && suggestions.length > 0 && dropdownPos.mobile && (
-                                    <div ref={dropdownRef} className="-mt-1 mb-1 md:hidden">
-                                        {renderAddressSuggestions({ mobile: true })}
-                                    </div>
-                                )}
-
-                                <div className="grid grid-cols-2 gap-3 md:gap-4">
-                                    <div>
-                                        <label htmlFor="checkout-zip" className="sr-only">Code Postal</label>
-                                        <input
-                                            id="checkout-zip"
-                                            name="zip"
-                                            value={formData.zip}
-                                            onChange={handleAddressRelatedChange}
-                                            onFocus={(e) => {
-                                                e.target.select();
-                                                if (suggestions.length > 0) { updateDropdownPosition(); setShowSuggestions(true); }
-                                            }}
-                                            placeholder="Code Postal"
-                                            className={inputClasses}
-                                            required
-                                            autoComplete="off"
-                                            inputMode="numeric"
-                                        />
-                                    </div>
-                                    <div>
-                                        <label htmlFor="checkout-city" className="sr-only">Ville</label>
-                                        <input
-                                            id="checkout-city"
-                                            name="city"
-                                            value={formData.city}
-                                            onChange={handleAddressRelatedChange}
-                                            onFocus={(e) => {
-                                                e.target.select();
-                                                if (suggestions.length > 0) { updateDropdownPosition(); setShowSuggestions(true); }
-                                            }}
-                                            placeholder="Ville"
-                                            className={inputClasses}
-                                            required
-                                            autoComplete="off"
-                                        />
-                                    </div>
-                                </div>
-                            </div>
+                            )}
                         </div>
 
                         {/* GROUPE 2 : CHOIX DU PAIEMENT */}
                         <div className="relative">
-                        <div className={`${cardClasses} ${!stripeEnabled ? 'w-full md:max-w-[400px]' : ''}`}>
+                            {!isInfoValidated && (
+                                <div className="absolute inset-0 z-20 rounded-3xl bg-white/40 dark:bg-stone-900/40 backdrop-blur-[2px] flex items-center justify-center">
+                                    <span className="bg-stone-900 dark:bg-white text-white dark:text-stone-900 px-4 py-2 rounded-lg font-bold text-xs uppercase tracking-widest shadow-xl pointer-events-auto cursor-help" title="Veuillez d'abord valider vos informations ci-dessus">
+                                        Validation requise
+                                    </span>
+                                </div>
+                            )}
+                        <div className={`${cardClasses} ${!stripeEnabled ? 'w-full md:max-w-[400px]' : ''} ${!isInfoValidated ? 'opacity-60 pointer-events-none grayscale-[0.2]' : ''}`}>
                             <h3 className="text-[10px] md:text-xs font-black uppercase tracking-widest text-stone-400 flex items-center gap-2 mb-4">
                                 <CreditCard size={14} /> Moyen de Paiement
                             </h3>
@@ -933,6 +1026,67 @@ const CheckoutView = ({ cartItems, total, user, darkMode = false, onBack, onPlac
             </div>
 
         </div>
+
+        {/* MODAL RÉCAPITULATIF (POP-UP) */}
+        <AnimatePresence>
+            {isRecapModalOpen && createPortal(
+                <div
+                    className="fixed inset-0 z-[99999] flex items-center justify-center p-4 md:p-6"
+                    style={{ background: 'rgba(0,0,0,0.82)' }}
+                    onClick={(e) => { if (e.target === e.currentTarget) setIsRecapModalOpen(false); }}
+                >
+                    <motion.div 
+                        initial={{ opacity: 0, scale: 0.95 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        exit={{ opacity: 0, scale: 0.95 }}
+                        transition={{ duration: 0.2 }}
+                        className={`w-full max-w-lg relative p-6 md:p-8 rounded-[2rem] shadow-2xl max-h-[85vh] overflow-y-auto ios-modal-scroll custom-scrollbar ${darkMode ? 'bg-[#0a0a0a] ring-1 ring-white/5' : 'bg-white ring-1 ring-stone-200'}`}
+                    >
+                        <div className="mb-6">
+                            <h3 className={`text-2xl font-black tracking-tight ${darkMode ? 'text-white' : 'text-stone-900'}`}>Vos informations.</h3>
+                            <p className={`text-xs mt-1 font-medium ${darkMode ? 'text-stone-500' : 'text-stone-500'}`}>Vérifiez que tout est correct avant de payer.</p>
+                        </div>
+                        
+                        <div className={`space-y-4 mb-8 text-sm ${darkMode ? 'text-stone-300' : 'text-stone-700'}`}>
+                            {clientType === 'particulier' ? (
+                                <>
+                                    <p><strong className={darkMode ? 'text-white' : 'text-black'}>Nom complet :</strong> {formData.firstName} {formData.lastName}</p>
+                                    <p><strong className={darkMode ? 'text-white' : 'text-black'}>Contact :</strong> {formData.phone} &bull; {formData.email}</p>
+                                    <p><strong className={darkMode ? 'text-white' : 'text-black'}>Adresse :</strong> {formData.address}{formData.addressComplement ? `, ${formData.addressComplement}` : ''}, {formData.zip} {formData.city}, {formData.country}</p>
+                                    {formData.createAccount && <p className="text-amber-500 font-bold">Création de compte demandée</p>}
+                                </>
+                            ) : (
+                                <>
+                                    <p><strong className={darkMode ? 'text-white' : 'text-black'}>Entreprise :</strong> {formData.companyName} (SIRET: {formData.siret})</p>
+                                    {formData.tva && <p><strong className={darkMode ? 'text-white' : 'text-black'}>TVA :</strong> {formData.tva}</p>}
+                                    <p><strong className={darkMode ? 'text-white' : 'text-black'}>Contact :</strong> {formData.contactFirstName} {formData.contactLastName} &bull; {formData.companyPhone} &bull; {formData.companyEmail}</p>
+                                    <p><strong className={darkMode ? 'text-white' : 'text-black'}>Adresse :</strong> {formData.companyAddress}{formData.companyAddressComplement ? `, ${formData.companyAddressComplement}` : ''}, {formData.companyZip} {formData.companyCity}, {formData.companyCountry}</p>
+                                </>
+                            )}
+                        </div>
+
+                        <div className="flex gap-3 md:gap-4">
+                            <button
+                                onClick={() => setIsRecapModalOpen(false)}
+                                className={`flex-1 py-4 rounded-xl font-bold uppercase text-[10px] md:text-xs tracking-widest transition-all border ${darkMode ? 'border-stone-800 text-white hover:bg-stone-900' : 'border-stone-200 text-stone-900 hover:bg-stone-50'}`}
+                            >
+                                Modifier
+                            </button>
+                            <button
+                                onClick={() => {
+                                    setIsInfoValidated(true);
+                                    setIsRecapModalOpen(false);
+                                }}
+                                className={`flex-1 py-4 rounded-xl font-black uppercase text-[10px] md:text-xs tracking-widest transition-all ${darkMode ? 'bg-white text-stone-900 hover:bg-stone-200' : 'bg-stone-900 text-white hover:bg-stone-800'}`}
+                            >
+                                Confirmer
+                            </button>
+                        </div>
+                    </motion.div>
+                </div>,
+                document.body
+            )}
+        </AnimatePresence>
 
         {/* MODAL STRIPE (POP-UP) RENDU DANS UN PORTAL POUR ÉVITER LES BUGS Z-INDEX ET STACKING CONTEXT SUR IOS */}
         {checkoutState === 'ready_to_pay' && clientSecret && stripeElementsOptions && paymentMethod === 'stripe_elements' && createPortal(

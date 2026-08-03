@@ -44,9 +44,12 @@ const performScroll = (top, { immediate = false, duration = 0.75, easing = DEFAU
         const previousBodyScrollBehavior = document.body.style.scrollBehavior;
         document.documentElement.style.scrollBehavior = 'auto';
         document.body.style.scrollBehavior = 'auto';
-        window.scrollTo({ top, behavior: 'auto' });
-        document.documentElement.style.scrollBehavior = previousHtmlScrollBehavior;
-        document.body.style.scrollBehavior = previousBodyScrollBehavior;
+        window.scrollTo({ top, left: 0, behavior: 'auto' });
+        
+        requestAnimationFrame(() => {
+            document.documentElement.style.scrollBehavior = previousHtmlScrollBehavior;
+            document.body.style.scrollBehavior = previousBodyScrollBehavior;
+        });
         return;
     }
 

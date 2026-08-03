@@ -1,23 +1,41 @@
-import { useEffect } from 'react';
-import { X, Trash2, ShoppingBag, ArrowRight } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { X, Trash2, ShoppingBag, ArrowRight, ArrowLeft } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { lockPageScroll } from '../../utils/smoothScroll';
+import { useAuth } from '../../contexts/AuthContext';
+import AuthPanel from '../auth/AuthPanel';
 
 const CartSidebar = ({ isOpen, onClose, cartItems, onRemoveItem, totalPrice, onCheckout, interacted, darkMode, activeDesignId }) => {
     // We only want transitions AFTER the first interaction to avoid the "closing on mount" bug
     const transitionEnabled = interacted || isOpen;
     const baseTransition = transitionEnabled ? 'duration-700 ease-[cubic-bezier(0.23,1,0.32,1)]' : 'duration-0';
 
+    const { user } = useAuth();
+    const [isAuthMode, setIsAuthMode] = useState(false);
+
     // ARCHITECTURAL THEME LOGIC
     const isArch = activeDesignId === 'architectural';
-    const bgClass = isArch
-        ? (darkMode ? 'bg-[#0A0A0A] border-l border-stone-800 text-stone-200' : 'bg-[#FAFAF9] border-l border-stone-200 text-stone-900')
-        : (darkMode ? 'bg-[#0A0A0A] border-l border-stone-800 text-white' : 'bg-[#FAFAF9] text-stone-900');
+    const bgClass = isAuthMode 
+        ? 'bg-[#0b0d0f] border-l border-stone-800 text-stone-100' // Force dark for AuthPanel
+        : isArch
+            ? (darkMode ? 'bg-[#0A0A0A] border-l border-stone-800 text-stone-200' : 'bg-[#FAFAF9] border-l border-stone-200 text-stone-900')
+            : (darkMode ? 'bg-[#0A0A0A] border-l border-stone-800 text-white' : 'bg-[#FAFAF9] text-stone-900');
 
     useEffect(() => {
-        if (!isOpen) return undefined;
+        if (!isOpen) {
+            // Reset auth mode when closed (with slight delay for animation)
+            setTimeout(() => setIsAuthMode(false), 500);
+        }
         return lockPageScroll();
     }, [isOpen]);
+
+    const handleCheckoutClick = () => {
+        if (!user || user.isAnonymous) {
+            setIsAuthMode(true);
+        } else {
+            onCheckout();
+        }
+    };
 
     return (
         <div className={`fixed inset-0 z-[2500] ${isOpen ? 'visible' : 'invisible delay-700'}`}>
@@ -35,25 +53,28 @@ const CartSidebar = ({ isOpen, onClose, cartItems, onRemoveItem, totalPrice, onC
             >
 
                 {/* Header */}
-                <div className={`flex justify-between items-center mb-10 border-b pb-6 ${darkMode ? 'border-stone-800' : 'border-stone-200'}`}>
+                <div className={`flex justify-between items-center mb-10 border-b pb-6 ${isAuthMode || darkMode ? 'border-stone-800' : 'border-stone-200'}`}>
                     <div className="flex items-center gap-3">
-                        <ShoppingBag size={24} className={isArch ? (darkMode ? 'text-stone-200' : 'text-stone-900') : (darkMode ? 'text-white' : 'text-stone-900')} />
-                        <h2 className={`text-2xl font-black tracking-tight ${isArch ? 'font-serif italic font-normal tracking-wide' : ''}`}>
-                            {isArch ? 'Votre Sélection' : 'Votre Panier'}
+                        <ShoppingBag size={24} className={isAuthMode ? 'text-stone-200' : (isArch ? (darkMode ? 'text-stone-200' : 'text-stone-900') : (darkMode ? 'text-white' : 'text-stone-900'))} />
+                        <h2 className={`text-2xl font-black tracking-tight ${isArch ? 'font-serif italic font-normal tracking-wide' : ''} ${isAuthMode ? 'text-white' : ''}`}>
+                            {isAuthMode ? 'Identifiez-vous' : (isArch ? 'Votre Sélection' : 'Votre Panier')}
                         </h2>
                     </div>
                     
-                    {/* Animated Close Button - Same as Menu (X to +) */}
                     <div className="relative w-12 h-12 flex items-center justify-center">
                         <motion.button 
                             onClick={(e) => {
-                                const btn = e.currentTarget;
-                                btn.style.transition = 'transform 0.4s cubic-bezier(0.23, 1, 0.32, 1)';
-                                btn.style.transform = 'rotate(45deg)'; 
-                                
-                                setTimeout(() => {
-                                    onClose();
-                                }, 400);
+                                if (isAuthMode) {
+                                    setIsAuthMode(false);
+                                } else {
+                                    const btn = e.currentTarget;
+                                    btn.style.transition = 'transform 0.4s cubic-bezier(0.23, 1, 0.32, 1)';
+                                    btn.style.transform = 'rotate(45deg)'; 
+                                    
+                                    setTimeout(() => {
+                                        onClose();
+                                    }, 400);
+                                }
                             }} 
                             initial={{ rotate: 0, opacity: 0 }}
                             animate={{ rotate: 0, opacity: 1 }}
@@ -61,16 +82,29 @@ const CartSidebar = ({ isOpen, onClose, cartItems, onRemoveItem, totalPrice, onC
                                 rotate: { type: "spring", stiffness: 450, damping: 25 },
                                 opacity: { duration: 0.3 }
                             }}
-                            className={`flex items-center justify-center will-change-transform ${darkMode ? 'text-stone-500' : 'text-stone-400'}`}
+                            className={`flex items-center justify-center will-change-transform ${isAuthMode || darkMode ? 'text-stone-400 hover:text-white' : 'text-stone-400 hover:text-stone-900'}`}
                         >
-                            <X size={26} strokeWidth={1} />
+                            {isAuthMode ? <ArrowLeft size={26} strokeWidth={1} /> : <X size={26} strokeWidth={1} />}
                         </motion.button>
                     </div>
                 </div>
 
-                {/* Cart Items List */}
-                <div data-scroll-region className="flex-1 overflow-y-auto ios-modal-scroll space-y-6 pr-2 scrollbar-thin scrollbar-thumb-stone-200">
-                    {cartItems.length === 0 ? (
+                {isAuthMode ? (
+                    <div className="flex-1 overflow-y-auto ios-modal-scroll -mx-6 md:-mx-8 px-6 md:px-8">
+                        <AuthPanel 
+                            onSuccess={() => {
+                                setIsAuthMode(false);
+                                onCheckout(); // Proceed to checkout automatically after login
+                            }}
+                            darkMode={darkMode}
+                            // Don't show close button in AuthPanel since we have back button in Sidebar header
+                        />
+                    </div>
+                ) : (
+                    <>
+                        {/* Cart Items List */}
+                        <div data-scroll-region className="flex-1 overflow-y-auto ios-modal-scroll space-y-6 pr-2 scrollbar-thin scrollbar-thumb-stone-200">
+                            {cartItems.length === 0 ? (
                         <div className="h-full flex flex-col items-center justify-center text-stone-400 gap-4 opacity-60">
                             <ShoppingBag size={48} strokeWidth={1} />
                             <p className="font-serif italic text-lg">{isArch ? 'Aucune pièce sélectionnée.' : 'Votre panier est vide.'}</p>
@@ -111,17 +145,19 @@ const CartSidebar = ({ isOpen, onClose, cartItems, onRemoveItem, totalPrice, onC
                             <span className={`text-4xl font-black tracking-tighter ${darkMode ? 'text-white' : 'text-stone-900'} ${isArch ? 'font-serif' : ''}`}>{totalPrice} €</span>
                         </div>
                         <button
-                            onClick={onCheckout}
+                            onClick={handleCheckoutClick}
                             className={`w-full py-5 font-black uppercase text-xs tracking-[0.2em] transition-all flex items-center justify-center gap-3 shadow-xl group 
                                 ${isArch
                                     ? 'bg-stone-900 dark:bg-stone-100 text-white dark:text-black rounded-none hover:bg-stone-700 dark:hover:bg-stone-300'
                                     : (darkMode ? 'bg-white text-stone-900 rounded-xl hover:bg-amber-500 hover:text-white' : 'bg-stone-900 text-white rounded-xl hover:bg-amber-600')
                                 }`}
                         >
-                            {isArch ? 'Finaliser l\'acquisition' : 'Commander'} <ArrowRight size={16} className="group-hover:translate-x-1 transition-transform" />
+                            {isArch ? 'Valider mon panier' : 'Commander'} <ArrowRight size={16} className="group-hover:translate-x-1 transition-transform" />
                         </button>
                         <p className="text-[9px] text-center text-stone-400 uppercase tracking-widest">Paiement sécurisé & Livraison soignée</p>
                     </div>
+                )}
+                </>
                 )}
 
             </div>
