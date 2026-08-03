@@ -3,23 +3,130 @@ import { motion, useAnimation } from 'framer-motion';
 import { X, Menu, Instagram, Facebook, Mail, Plus } from 'lucide-react';
 import { lockPageScroll, scrollToTop } from '../../utils/smoothScroll';
 
+// ── Neon glow keyframes (injected once) ──
+// Pure CSS animation → runs on compositor, zero JS per frame
+const NEON_STYLE_ID = 'globalmenu-neon-style';
+if (typeof document !== 'undefined' && !document.getElementById(NEON_STYLE_ID)) {
+    const style = document.createElement('style');
+    style.id = NEON_STYLE_ID;
+    style.textContent = `
+        @keyframes neonLetterIn {
+            0% {
+                color: rgba(120, 113, 108, 1);
+                text-shadow: none;
+            }
+            25% {
+                color: #fff;
+                text-shadow:
+                    0 0 7px rgba(251, 191, 36, 0.6),
+                    0 0 14px rgba(251, 191, 36, 0.4),
+                    0 0 28px rgba(251, 191, 36, 0.2);
+            }
+            55% {
+                color: #fbbf24;
+                text-shadow:
+                    0 0 4px rgba(251, 191, 36, 0.5),
+                    0 0 11px rgba(251, 191, 36, 0.3),
+                    0 0 20px rgba(251, 191, 36, 0.15);
+            }
+            100% {
+                color: #fbbf24;
+                text-shadow:
+                    0 0 4px rgba(251, 191, 36, 0.35),
+                    0 0 8px rgba(251, 191, 36, 0.2);
+            }
+        }
+        @keyframes neonFadeOut {
+            from {
+                color: #fbbf24;
+                text-shadow:
+                    0 0 4px rgba(251, 191, 36, 0.35),
+                    0 0 8px rgba(251, 191, 36, 0.2);
+            }
+            to {
+                color: rgba(168, 162, 158, 1);
+                text-shadow: none;
+            }
+        }
+    `;
+    document.head.appendChild(style);
+}
+
+// ── Neon timing constants ──
+const NEON_LETTER_DURATION = 0.9;     // secondes par lettre
+const NEON_LETTER_STAGGER  = 0.10;    // secondes entre chaque lettre
+const NEON_START_DELAY     = 0.6;     // délai avant la première lettre
+
 // ── Courbes d'easing (approximation fidèle des springs Framer Motion) ──
 // Open spring (stiffness:250, damping:35, mass:0.8) → ζ≈1.24 overdamped → pas d'oscillation
 // Close spring (stiffness:450, damping:30, mass:0.7) → ζ≈0.85 underdamped → ~4% overshoot
 const EASE_OPEN = 'cubic-bezier(0.23,1,0.32,1)';
 const EASE_CLOSE = 'cubic-bezier(0.12,0.8,0.3,1)';
 
+// ── NeonLabel ──
+// Renders "Commandes" with a sequenced neon-glow CSS animation (letter by letter).
+// Pure @keyframes — zero JS per frame, runs entirely on the compositor.
+// `onComplete` is called after the last letter finishes so the parent can
+// switch to the standard Framer Motion hover rendering.
+const NeonLabel = React.memo(({ label, isMenuOpen, onComplete }) => {
+    const timerRef = useRef(null);
+
+    useEffect(() => {
+        if (!isMenuOpen) { clearTimeout(timerRef.current); return; }
+        // Total duration = start delay + (n-1)*stagger + letter duration
+        const totalMs = (NEON_START_DELAY + (label.length - 1) * NEON_LETTER_STAGGER + NEON_LETTER_DURATION) * 1000;
+        timerRef.current = setTimeout(() => { onComplete?.(); }, totalMs);
+        return () => clearTimeout(timerRef.current);
+    }, [isMenuOpen, label.length, onComplete]);
+
+    return (
+        <span className="flex" aria-label={label}>
+            {label.split('').map((char, i) => (
+                <span
+                    key={i}
+                    style={{
+                        display: 'inline-block',
+                        animation: isMenuOpen
+                            ? `neonLetterIn ${NEON_LETTER_DURATION}s ease-out ${NEON_START_DELAY + i * NEON_LETTER_STAGGER}s both`
+                            : 'none',
+                        color: isMenuOpen ? undefined : 'inherit',
+                        textShadow: isMenuOpen ? undefined : 'none',
+                    }}
+                >
+                    {char === ' ' ? '\u00A0' : char}
+                </span>
+            ))}
+        </span>
+    );
+});
+
 // ── MenuItemHover ──
 // Seul composant qui garde Framer Motion (motion.span) pour le hover par lettres sur desktop.
 // Le tap feedback est désormais en CSS :active (compositor) au lieu de whileTap (main thread).
-const MenuItemHover = React.memo(({ item, index, isClicked, darkMode, handlePremiumClick, isMobile }) => {
+const MenuItemHover = React.memo(({ item, index, isClicked, darkMode, handlePremiumClick, isMobile, isMenuOpen }) => {
     const controls = useAnimation();
     const isHoveredRef = useRef(false);
     const isAnimatingRef = useRef(false);
     const [isActive, setIsActive] = useState(false);
 
+    // ── Neon → Hover transition state ──
+    const isNeonItem = item._neon;
+    const [neonDone, setNeonDone] = useState(false);
+
+    // Reset quand le menu se ferme
+    useEffect(() => {
+        if (!isMenuOpen) setNeonDone(false);
+    }, [isMenuOpen]);
+
+    const handleNeonComplete = useMemo(() => {
+        if (!isNeonItem) return undefined;
+        return () => setNeonDone(true);
+    }, [isNeonItem]);
+
     const handleMouseEnter = () => {
         if (isMobile) return;
+        // Neon items ne répondent au hover qu'après la fin de l'animation
+        if (isNeonItem && !neonDone) return;
         isHoveredRef.current = true;
         setIsActive(true);
         if (!isAnimatingRef.current) {
@@ -30,6 +137,7 @@ const MenuItemHover = React.memo(({ item, index, isClicked, darkMode, handlePrem
 
     const handleMouseLeave = () => {
         if (isMobile) return;
+        if (isNeonItem && !neonDone) return;
         isHoveredRef.current = false;
         if (!isAnimatingRef.current) {
             controls.start("initial");
@@ -37,10 +145,22 @@ const MenuItemHover = React.memo(({ item, index, isClicked, darkMode, handlePrem
         }
     };
 
+    // Après néon : le label est ambre ; le hover slide utilise blanc
+    // showHoverMotion = true quand le néon est terminé (ou pour les items normaux desktop)
+    const showHoverMotion = !isMobile && (!isNeonItem || neonDone);
+    // Pendant le néon ou sur mobile sans néon
+    const showNeonPhase = isNeonItem && !neonDone;
+
     const content = (
         <>
             <div className="relative flex overflow-hidden whitespace-nowrap">
-                {isMobile ? (
+                {showNeonPhase ? (
+                    // ── Phase 1 : Neon animated label (Commandes) ──
+                    <NeonLabel label={item.label} isMenuOpen={isMenuOpen} onComplete={handleNeonComplete} />
+                ) : isMobile && isNeonItem ? (
+                    // Mobile après néon : texte ambre statique
+                    <span className="flex text-amber-400">{item.label}</span>
+                ) : isMobile ? (
                     <span className="flex">{item.label}</span>
                 ) : (
                     <>
@@ -98,7 +218,9 @@ const MenuItemHover = React.memo(({ item, index, isClicked, darkMode, handlePrem
 
     // active:scale-[0.96] + active:opacity-70 = CSS :active pseudo-class → compositor thread
     // Remplace whileTap de Framer Motion qui tournait sur le main thread (RAF JS)
-    const className = `group flex items-center justify-between w-full py-2 text-left text-4xl md:text-5xl font-light tracking-tighter cursor-pointer active:scale-[0.96] active:opacity-70 ${isClicked ? 'text-amber-500' : 'text-stone-400 hover:text-white'}`;
+    // Neon items : ambre après l'animation, stone pendant
+    const neonColor = neonDone ? 'text-amber-400 hover:text-white' : 'text-stone-400';
+    const className = `group flex items-center justify-between w-full py-2 text-left text-4xl md:text-5xl font-light tracking-tighter cursor-pointer active:scale-[0.96] active:opacity-70 ${isClicked ? 'text-amber-500' : isNeonItem ? neonColor : 'text-stone-400 hover:text-white'}`;
 
     const tapStyle = { transition: 'color 500ms ease, transform 150ms ease-out, opacity 150ms ease-out' };
 
@@ -162,6 +284,7 @@ const GlobalMenu = ({
     }, []);
 
     // PERF: mémoïsé — recalculé uniquement si auth/design change
+    // Ordre : Accueil, Galerie, ★ Commandes (3e, néon), Le Comptoir, A propos, Admin
     const menuItems = useMemo(() => [
         {
             label: activeDesignId === 'architectural' ? 'Accueil' : 'Accueil.',
@@ -181,6 +304,12 @@ const GlobalMenu = ({
             },
             href: '/meubles-anciens'
         },
+        // ★ Commandes en 3ème position avec animation néon
+        ...(user && !user.isAnonymous ? [{
+            label: activeDesignId === 'architectural' ? 'Commandes' : 'Commandes.',
+            onClick: () => { setView('my-orders'); setIsMenuOpen(false); scrollToTop(); },
+            _neon: true,
+        }] : []),
         {
             label: "Le Comptoir",
             onClick: (e) => {
@@ -199,10 +328,6 @@ const GlobalMenu = ({
             },
             href: '/a-propos'
         },
-        ...(user && !user.isAnonymous ? [{
-            label: activeDesignId === 'architectural' ? 'Commandes' : 'Commandes.',
-            onClick: () => { setView('my-orders'); setIsMenuOpen(false); scrollToTop(); }
-        }] : []),
         ...(isAdmin ? [{
             label: 'Admin.',
             onClick: () => { setView('admin'); setIsMenuOpen(false); scrollToTop(); }
@@ -331,6 +456,7 @@ const GlobalMenu = ({
                                         darkMode={darkMode}
                                         handlePremiumClick={premiumClickHandlers[index]}
                                         isMobile={isMobile}
+                                        isMenuOpen={isMenuOpen}
                                     />
                                 </div>
                             );
