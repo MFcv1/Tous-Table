@@ -842,7 +842,10 @@ const AppContent = () => {
       if (route.galleryState) {
         setPersistentGalleryState(prev => ({ ...prev, ...route.galleryState }));
       }
-      setView(route.view);
+      // Only force view from URL on initial load to avoid interrupting user navigation (e.g. checkout redirect)
+      if (loading) {
+        setView(route.view);
+      }
       setIsSecretGateOpen(false);
     }
     setLoading(false);
@@ -1004,6 +1007,13 @@ const AppContent = () => {
 
 
 
+  // --- CART PERSISTENCE (Mirror to Local Storage) ---
+  useEffect(() => {
+    // We only mirror if we have items, OR if we had items and now it's empty.
+    // This allows the user to keep their cart if they log out on the same browser.
+    localStorage.setItem('tat_local_cart', JSON.stringify(cartItems));
+  }, [cartItems]);
+
   // --- AUTO-REDIRECT TO CHECKOUT AFTER LOGIN ---
   useEffect(() => {
     if (user && !user.isAnonymous && pendingCheckout) {
@@ -1055,7 +1065,10 @@ const AppContent = () => {
       return true;
     } else {
       try {
-        await addDoc(collection(db, 'users', user.uid, 'cart'), cartItemData);
+        const firestoreItem = { ...cartItemData };
+        delete firestoreItem.id; // Firestore auto-generates the ID and rejects undefined fields
+        
+        await addDoc(collection(db, 'users', user.uid, 'cart'), firestoreItem);
         setCartInteracted(true);
         return true;
       } catch (e) {
@@ -1164,6 +1177,7 @@ const AppContent = () => {
         cartItems={cartItems}
         onRemoveItem={removeFromCart}
         totalPrice={cartTotal}
+        onRequireAuth={() => setPendingCheckout(true)}
         onCheckout={() => {
           setIsCartOpen(false);
           setView('checkout');

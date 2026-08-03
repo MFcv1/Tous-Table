@@ -5,7 +5,7 @@ import { lockPageScroll } from '../../utils/smoothScroll';
 import { useAuth } from '../../contexts/AuthContext';
 import AuthPanel from '../auth/AuthPanel';
 
-const CartSidebar = ({ isOpen, onClose, cartItems, onRemoveItem, totalPrice, onCheckout, interacted, darkMode, activeDesignId }) => {
+const CartSidebar = ({ isOpen, onClose, cartItems, onRemoveItem, totalPrice, onCheckout, onRequireAuth, interacted, darkMode, activeDesignId }) => {
     // We only want transitions AFTER the first interaction to avoid the "closing on mount" bug
     const transitionEnabled = interacted || isOpen;
     const baseTransition = transitionEnabled ? 'duration-700 ease-[cubic-bezier(0.23,1,0.32,1)]' : 'duration-0';
@@ -25,6 +25,7 @@ const CartSidebar = ({ isOpen, onClose, cartItems, onRemoveItem, totalPrice, onC
         if (!isOpen) {
             // Reset auth mode when closed (with slight delay for animation)
             setTimeout(() => setIsAuthMode(false), 500);
+            return; // Do not lock scroll when closing!
         }
         return lockPageScroll();
     }, [isOpen]);
@@ -32,6 +33,7 @@ const CartSidebar = ({ isOpen, onClose, cartItems, onRemoveItem, totalPrice, onC
     const handleCheckoutClick = () => {
         if (!user || user.isAnonymous) {
             setIsAuthMode(true);
+            if (onRequireAuth) onRequireAuth();
         } else {
             onCheckout();
         }
