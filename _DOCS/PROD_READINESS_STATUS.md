@@ -451,6 +451,18 @@ Correctif prod du 2026-08-30 - authentification SMTP OTP :
 - `npm run preflight:prod` : OK ; Hosting prod publie et bundle public controle.
 - Aucune ecriture Firestore prod et aucun email de test envoye.
 
+Alignement infrastructure sandbox/prod du 2026-08-30 :
+
+- Cause du second echec OTP identifiee dans les logs : App Check et le code etaient valides, puis `verifyEmailOtp` echouait sur `auth/insufficient-permission` pendant `createCustomToken`.
+- Le service account prod possede maintenant le meme role auto-cible `roles/iam.serviceAccountTokenCreator` que la sandbox.
+- App Check utilise reCAPTCHA Enterprise dans les deux builds ; cles, TTL, domaines et enforcement Firestore/Auth sont coherents. Storage reste volontairement non enforce dans les deux projets.
+- Les rules Storage sandbox ont ete alignees sur les rules prod ; les rules Firestore etaient deja identiques.
+- Auth Email/Anonyme/Google, IAM d'invocation Functions, secrets, index, APIs et headers Hosting ont ete verifies et alignes.
+- Les 33 Functions ont ete redeployees depuis la meme source sur sandbox et prod ; toutes utilisent les versions actives des secrets auxquelles elles sont attachees.
+- `npm run verify:env-parity` ajoute et integre au preflight : 46/46 controles passes sans lecture ni ecriture de donnees Firestore.
+- Builds Hosting sandbox et prod republies ; aucun document catalogue, commande ou utilisateur modifie par l'audit.
+- Le token debug App Check qui etait embarque dans l'ancien bundle prod a ete retire du build et revoque cote production ; il reste autorise uniquement en sandbox pour localhost. Les gates env et bundle bloquent son retour.
+
 ## Reste a suivre
 
 1. Decider le traitement des legacy env vars Functions: nettoyage + rotation recommandes.

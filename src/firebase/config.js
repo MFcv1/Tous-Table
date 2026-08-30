@@ -33,8 +33,11 @@ let appCheck = null;
 if (typeof window !== 'undefined') {
   // Active le mode debug pour localhost (npm run dev) avec un token fixe
   if (
-    ['localhost', '127.0.0.1'].includes(window.location.hostname)
-    || window.location.hostname.endsWith('.localhost')
+    import.meta.env.DEV
+    && (
+      ['localhost', '127.0.0.1'].includes(window.location.hostname)
+      || window.location.hostname.endsWith('.localhost')
+    )
   ) {
     window.FIREBASE_APPCHECK_DEBUG_TOKEN = import.meta.env.VITE_APPCHECK_DEBUG_TOKEN || true;
   }

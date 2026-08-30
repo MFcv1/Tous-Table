@@ -157,6 +157,30 @@ Le multi-deploy « dashboard one-click » peut encore évoluer ; l’essentiel e
 - Audits / implémentations (ex. live stock catalogue) = **tests sandbox d’abord**.  
 - Prod isolée tant qu’on ne merge/deploy pas explicitement.
 
+## 10. Contrat de parite hors donnees
+
+La sandbox et la production doivent avoir le meme comportement hors identifiants et
+donnees propres a chaque projet. Ce contrat inclut les 33 Functions, leurs runtimes et
+triggers, les IAM d'invocation et de signature, les noms et versions actives des secrets,
+les fournisseurs Auth, App Check Enterprise et son enforcement, les rules Firestore et
+Storage, les index, les APIs requises et les headers Hosting.
+
+Les differences admises sont limitees aux project/app IDs, cles et domaines propres a
+chaque environnement, emplacements physiques Firestore/Storage, destinataires Gmail,
+token debug App Check present uniquement en sandbox, et contenu des bases. Elles ne
+doivent pas modifier le parcours utilisateur public.
+
+Commande obligatoire avant un deploiement production :
+
+```bash
+npm run verify:env-parity
+```
+
+Ce gate est integre a `npm run preflight:prod`, ne lit aucune donnee Firestore et ne
+consigne aucune valeur de secret. Il bloque notamment un role IAM absent, un provider
+App Check different, des rules deployees divergentes ou une Function encore attachee a
+une ancienne version de secret.
+
 ---
 
 **Fin du document.**

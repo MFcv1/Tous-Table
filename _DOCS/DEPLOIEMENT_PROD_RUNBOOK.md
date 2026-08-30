@@ -20,6 +20,7 @@ Objectif: deployer les corrections frontend/functions sans importer la sandbox e
 
 ```bash
 npm run verify:prod-env
+npm run verify:env-parity
 npm run verify:prod-furniture
 npm run verify:functions-syntax
 npm run build:prod
@@ -36,6 +37,7 @@ npm run preflight:prod
 Etat attendu:
 
 - `verify:prod-env` passe si `.env.prod` pointe vers Firebase prod.
+- `verify:env-parity` compare sans lire les donnees les Functions, IAM, versions de secrets attachees, Auth, App Check, reCAPTCHA, rules, index, APIs et headers Hosting entre `sandboxtat` et `tousatable-client`.
 - Stripe live est exige uniquement quand `VITE_STRIPE_CARD_PAYMENTS_ENABLED=true`.
 - `verify:prod-furniture` confirme que chaque meuble prod a une categorie Firestore valide ou un fallback dans le mapping legacy.
 - `verify:functions-syntax` verifie au minimum l'entrypoint Functions et la correction analytics.
@@ -54,6 +56,7 @@ Valeurs attendues:
 - `VITE_FIREBASE_STORAGE_BUCKET=tousatable-client.firebasestorage.app`
 - `VITE_FIREBASE_APP_ID=1:1047064824334:web:6d0d281e31845ad0814a5f`
 - `VITE_APP_LOGICAL_NAME=tat-made-in-normandie`
+- `VITE_RECAPTCHA_ENTERPRISE=true`
 - `VITE_STRIPE_CARD_PAYMENTS_ENABLED=false` pour le lancement sans carte
 - `VITE_STRIPE_PUBLIC_KEY=pk_live_...` uniquement si les paiements carte sont actives
 

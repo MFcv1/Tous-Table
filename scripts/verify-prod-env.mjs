@@ -10,6 +10,7 @@ const expected = {
   VITE_FIREBASE_MESSAGING_SENDER_ID: '1047064824334',
   VITE_FIREBASE_APP_ID: '1:1047064824334:web:6d0d281e31845ad0814a5f',
   VITE_FIREBASE_MEASUREMENT_ID: 'G-EK03HLLLWL',
+  VITE_RECAPTCHA_ENTERPRISE: 'true',
   VITE_APP_LOGICAL_NAME: 'tat-made-in-normandie',
   VITE_SUPER_ADMIN_EMAIL: 'matthis.fradin2@gmail.com',
 };
@@ -75,6 +76,10 @@ if (!cardPaymentsEnabled && env.VITE_STRIPE_PUBLIC_KEY && !env.VITE_STRIPE_PUBLI
 
 if (env.VITE_FIREBASE_API_KEY?.startsWith('__') || env.VITE_RECAPTCHA_SITE_KEY?.startsWith('__')) {
   errors.push('Les valeurs Firebase/App Check ne doivent pas etre des placeholders');
+}
+
+if (env.VITE_APPCHECK_DEBUG_TOKEN) {
+  errors.push('VITE_APPCHECK_DEBUG_TOKEN doit rester vide en production');
 }
 
 if (errors.length > 0) {

@@ -96,11 +96,14 @@ Tous les headers sont déployés via `firebase.json` → `hosting.headers` sur l
 ### Enforcement (Console Firebase)
 | Service | Sandbox 🧪 | Production 🌍 |
 |---|---|---|
-| **Cloud Firestore** | 🟢 **Surveillance** (Monitored) | ✅ **Appliqué** (Enforcement) |
-| **Authentication** | 🟢 **Surveillance** (Monitored) | ✅ **Appliqué** (Enforcement) |
+| **Cloud Firestore** | ✅ **Appliqué** (Enforcement) | ✅ **Appliqué** (Enforcement) |
+| **Authentication** | ✅ **Appliqué** (Enforcement) | ✅ **Appliqué** (Enforcement) |
 | **Storage** | ⚪ Non appliqué | ⚪ Non appliqué |
 
-**Note Strategique** : L'environnement Sandbox est volontairement laissé en mode "Surveillance" pour faciliter le développement et éviter les blocages liés aux délais de propagation reCAPTCHA. La **Production** est, elle, totalement verrouillée.
+**Note Strategique** : Sandbox et production appliquent désormais le même enforcement
+Firestore/Auth afin que la recette révèle les blocages App Check avant le déploiement.
+Le développement localhost continue de fonctionner avec le token debug enregistré dans
+la sandbox ; aucune valeur de token n'est documentée ni versionnée.
 
 **Métriques Production au moment de l'activation** :
 - 82% requêtes Firestore validées
@@ -376,10 +379,12 @@ le frontend coordonnés. Les parcours OTP/Google et commande virement ont été 
 aucune opération destructive n'a été déclenchée en recette. L'audit sécurité du patch a
 fermé 32/32 fichiers sans finding. Aucun changement n'a été déployé en production.
 
-Pour l'OTP sandbox, le service account `sandboxtat@appspot.gserviceaccount.com` possède
-`roles/iam.serviceAccountTokenCreator` uniquement sur lui-même. Cette délégation lui
-permet de signer le custom token Firebase après validation du code ; elle ne donne pas
-ce droit sur un autre service account et n'a pas été ajoutée en production.
+Pour l'OTP, chaque service account App Engine possède
+`roles/iam.serviceAccountTokenCreator` uniquement sur lui-même :
+`sandboxtat@appspot.gserviceaccount.com` en sandbox et
+`tousatable-client@appspot.gserviceaccount.com` en production. Cette délégation minimale
+permet de signer le custom token Firebase après validation du code sans donner ce droit
+sur un autre service account. Le gate `npm run verify:env-parity` contrôle cet invariant.
 
 ## Correctif local 2026-08-30 — frontière de panier entre comptes
 
