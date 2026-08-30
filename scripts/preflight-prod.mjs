@@ -34,6 +34,7 @@ runStep('Analytics reliability verification', npmBin, ['run', 'verify:analytics-
 runStep('Cart ownership and quantity verification', npmBin, ['run', 'verify:cart-boundary']);
 runStep('Dangerous admin and stock restore verification', npmBin, ['run', 'verify:dangerous-admin']);
 runStep('Email OTP security verification', npmBin, ['run', 'verify:email-otp']);
+runStep('Invoice numbering and immutable PDF verification', npmBin, ['run', 'verify:invoice']);
 runStep('Sandbox / production infrastructure parity', npmBin, ['run', 'verify:env-parity']);
 runStep('Functions syntax', npmBin, ['run', 'verify:functions-syntax']);
 runStep('Frontend production dependency audit', npmBin, ['audit', '--omit=dev']);

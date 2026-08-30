@@ -10,11 +10,13 @@ admin.initializeApp();
 const { createOrder } = require('./src/commerce/createOrder');
 const { stripeWebhook } = require('./src/commerce/stripeWebhook');
 const { cancelOrderClient, cancelAndDeleteOrderAdmin } = require('./src/commerce/cancelOrder');
+const { getInvoicePdf } = require('./src/commerce/getInvoice');
 
 exports.createOrder = createOrder;
 exports.stripeWebhook = stripeWebhook;
 exports.cancelOrderClient = cancelOrderClient;
 exports.cancelAndDeleteOrderAdmin = cancelAndDeleteOrderAdmin;
+exports.getInvoicePdf = getInvoicePdf;
 
 // ── AUCTION ───────────────────────────────────────────────
 const { placeBid } = require('./src/auction/placeBid');

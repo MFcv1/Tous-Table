@@ -481,6 +481,25 @@ Restauration commandes production du 2026-08-30 :
 - Etat final verifie en lecture : 22 commandes actives et `21 571 EUR` de chiffre d'affaires.
 - Logs prod : 18/18 triggers historiques ignores pour les notifications, 0 erreur Function.
 
+Durcissement facturation sandbox du 2026-08-30 :
+
+- Decision metier : aucun chantier d'avoir ou d'annulation comptable ajoute. Le flux reste une commande par virement.
+- Nouvelles commandes : numero annuel sequentiel `F-AAAA-NNNNN`, alloue dans la meme transaction Firestore que la commande et la reservation du stock.
+- Les anciennes commandes ne sont pas renumerotees : leur reference historique reste conservee pour eviter de contredire une facture deja transmise.
+- PDF genere une seule fois cote serveur, stocke dans un chemin Storage prive avec empreinte SHA-256 et protection contre l'ecrasement ; le navigateur telecharge cette copie au lieu de regenerer la facture.
+- Acces facture : Auth, email verifie, App Check et controle d'appartenance de la commande. Aucun lien Storage permanent n'est expose.
+- Facture enrichie : dates d'emission et de vente, total HT, TVA non applicable, net a payer, echeance a reception, escompte, penalites de retard et indemnite B2B de 40 EUR.
+- Entreprise avec adresse de facturation differente : la raison sociale, le SIRET et la TVA restent ceux de l'entreprise commanditaire ; seule l'adresse change. Le serveur rejette aussi une identite incoherente envoyee hors UI.
+- Gate `npm run verify:invoice` ajoute au preflight prod : 22 controles, dont la bascule annuelle selon le fuseau `Europe/Paris`.
+- Verification locale : syntaxe Functions OK, cart boundary OK, build Vite OK, PDF entreprise A4 inspecte visuellement, extraction texte OK et cas 35 lignes/3 pages sans chevauchement.
+- Deploiement effectue uniquement sur `sandboxtat` : Firestore rules, Storage rules, `createOrder`, `getInvoicePdf`, `onOrderCreated`, `onOrderUpdated` et Hosting. Compilation rules et publication OK.
+- Smoke sandbox : formulaire entreprise affiche l'identite juridique en lecture seule lorsque seule l'adresse de facturation change ; endpoint facture non authentifie refuse en HTTP 401.
+- Test Storage reel sur une ancienne commande de test sandbox : PDF prive cree puis relu deux fois avec le meme contenu et la meme empreinte ; seul le champ `invoice` de cette commande de test a ete ajoute, sans changement de statut/stock et sans email.
+- Conditions de reglement simplifiees : le bloc principal indique uniquement virement exigible a reception, avant expedition, puis expedition apres encaissement. Les mentions de retard obligatoires restent en petite ligne uniquement sur les factures professionnelles et disparaissent des factures particuliers.
+- Recette navigateur entreprise complete sur `sandboxtat` : commande reelle de test `F-2026-00001` a 100 EUR, email du compte confirme, informations juridiques relues dans le checkout, reservation stock atomique, IBAN affiche et emails Functions termines sans erreur.
+- Telechargement client valide depuis `Mes commandes` : `getInvoicePdf` a repondu en HTTP 200 avec Auth et App Check valides ; le PDF Chrome, le fichier Storage prive et l'empreinte rattachee a la commande sont strictement identiques. Rendu A4 inspecte visuellement sans chevauchement ni contenu manquant.
+- Production non modifiee par ce chantier. La parite Functions est volontairement temporairement rouge (34 sandbox / 33 prod) jusqu'a un accord explicite de deploiement production.
+
 ## Reste a suivre
 
 1. Decider le traitement des legacy env vars Functions: nettoyage + rotation recommandes.

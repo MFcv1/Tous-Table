@@ -140,7 +140,7 @@ const functionsByEnv = {};
 for (const [name, config] of Object.entries(environments)) {
   const functions = runJson('gcloud', ['functions', 'list', `--project=${config.project}`, '--format=json']);
   functionsByEnv[name] = functions;
-  check(`${name} has 33 active Functions`, functions.length === 33 && functions.every((fn) => fn.status === 'ACTIVE'));
+  check(`${name} has 34 active Functions`, functions.length === 34 && functions.every((fn) => fn.status === 'ACTIVE'));
 }
 
 const sandboxFunctionShape = functionsByEnv.sandbox.map(functionShape).sort((a, b) => a.name.localeCompare(b.name));

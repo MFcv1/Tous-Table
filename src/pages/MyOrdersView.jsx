@@ -6,7 +6,7 @@ import { functions } from '../firebase/config';
 import { httpsCallable } from 'firebase/functions';
 import { Package, Truck, XCircle, MessageCircle, ArrowLeft, CheckCircle, Download, CreditCard, Copy, Check, Loader2, Star, AlertTriangle } from 'lucide-react';
 import SEO from '../components/shared/SEO';
-import { generateInvoice, getOrderReference } from '../utils/generateInvoice';
+import { getOrderReference } from '../utils/orderReference';
 import { buildWhatsAppUrl, getWhatsAppPhoneFromContactInfo, normalizeWhatsAppPhone } from '../utils/whatsapp';
 
 const formatPrice = (price) => {
@@ -32,10 +32,24 @@ const MyOrdersView = ({ user, onBack, darkMode, contactInfo }) => {
     const handleDownloadInvoice = async (order) => {
         setDownloadingInvoice(order.id);
         try {
-            await generateInvoice(order);
+            const getInvoicePdf = httpsCallable(functions, 'getInvoicePdf');
+            const response = await getInvoicePdf({ orderId: order.id });
+            const binary = window.atob(response.data.base64);
+            const bytes = new Uint8Array(binary.length);
+            for (let index = 0; index < binary.length; index += 1) {
+                bytes[index] = binary.charCodeAt(index);
+            }
+            const url = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
+            const anchor = document.createElement('a');
+            anchor.href = url;
+            anchor.download = response.data.filename || `Facture_${getOrderReference(order.id)}.pdf`;
+            document.body.appendChild(anchor);
+            anchor.click();
+            anchor.remove();
+            window.setTimeout(() => URL.revokeObjectURL(url), 1000);
         } catch (error) {
-            console.error("Erreur génération facture:", error);
-            alert("Une erreur est survenue lors de la génération de la facture.");
+            console.error("Erreur téléchargement facture:", error);
+            alert("La facture est temporairement indisponible. Réessayez dans quelques instants.");
         } finally {
             setDownloadingInvoice(null);
         }
@@ -259,7 +273,7 @@ const MyOrdersView = ({ user, onBack, darkMode, contactInfo }) => {
                                                 {/* INNER CONTENT */}
                                                 <div className={`relative z-10 w-full h-full p-3 sm:p-4 rounded-[11px] sm:rounded-[15px] flex items-center justify-center gap-2 transition-all backdrop-blur-md ${darkMode ? 'bg-stone-900 group-hover:bg-stone-800' : 'bg-white group-hover:bg-stone-50'}`}>
                                                     {downloadingInvoice === order.id ? (
-                                                        <><Loader2 size={12} className="sm:w-3.5 sm:h-3.5 animate-spin text-stone-900 dark:text-white" /> <span className="text-[9px] sm:text-[10px] font-black uppercase tracking-widest text-stone-900 dark:text-white">Création...</span></>
+                                                        <><Loader2 size={12} className="sm:w-3.5 sm:h-3.5 animate-spin text-stone-900 dark:text-white" /> <span className="text-[9px] sm:text-[10px] font-black uppercase tracking-widest text-stone-900 dark:text-white">Téléchargement...</span></>
                                                     ) : (
                                                         <><Download size={12} className="sm:w-3.5 sm:h-3.5 text-stone-900 dark:text-white" /> <span className="text-[9px] sm:text-[10px] font-black uppercase tracking-widest text-stone-900 dark:text-white">Télécharger la facture</span></>
                                                     )}

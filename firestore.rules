@@ -225,6 +225,11 @@ service cloud.firestore {
       allow read, write: if false; // Backend Admin SDK uniquement
     }
 
+    // Séquence chronologique des factures - backend uniquement.
+    match /sys_invoice_counters/{seriesId} {
+      allow read, write: if false;
+    }
+
     // Analytics Dashboard (Sessions)
     match /analytics_sessions/{docId} {
       allow read: if isArtisan(); // Admins only

@@ -1,13 +1,20 @@
 rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
+    // Les factures sont générées et relues uniquement par Cloud Functions.
+    // Aucun lien public permanent n'est exposé par Storage.
+    match /invoices/{allPaths=**} {
+      allow read, write: if false;
+    }
+
     match /{allPaths=**} {
-      allow read: if true;
+      allow read: if !resource.name.matches('.*\\/invoices\\/.*');
       
       // BLINDAGE ADMINISTRATEUR (Standard & Robuste)
       // Seul l'admin identifié peut uploader. 
       // On bloque les fichiers trop gros (>10Mo) et les non-images.
-      allow write: if request.auth != null && (
+      allow write: if !request.resource.name.matches('.*\\/invoices\\/.*')
+        && request.auth != null && (
                    request.auth.token.email == 'matthis.fradin2@gmail.com' ||
                    request.auth.token.admin == true
       ) && request.resource.size < 10 * 1024 * 1024

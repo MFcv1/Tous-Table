@@ -15,6 +15,11 @@ const crypto = require('crypto');
 const { STRIPE_SECRET_KEY, GMAIL_EMAIL, GMAIL_PASSWORD } = require('../../helpers/secrets');
 const { APP_ID } = require('../../helpers/config');
 const { invalidatePublicCatalogCache } = require('../public/catalog');
+const {
+    getInvoiceCounterRef,
+    getNextInvoiceIdentity,
+    writeInvoiceCounter,
+} = require('./invoiceNumber');
 
 const db = admin.firestore();
 const Stripe = require('stripe');
@@ -59,6 +64,10 @@ const validateShipping = (shipping) => {
             if (typeof shipping[field] !== 'string' || !shipping[field].trim()) missing.push(field);
         });
         if (String(shipping.siret || '').replace(/\D/g, '').length !== 14) missing.push('siret_format');
+        if (normalizeEmail(String(shipping.billing?.name || '').replace(/\s+/g, ' '))
+            !== normalizeEmail(String(shipping.companyName || '').replace(/\s+/g, ' '))) {
+            missing.push('billing_company_mismatch');
+        }
     }
     return [...new Set(missing)];
 };
@@ -173,6 +182,8 @@ exports.createOrder = functions.runWith({ secrets: [STRIPE_SECRET_KEY, GMAIL_EMA
     // 2. Paiement Différé (Manuel: Virement/Chèque)
     if (orderData.paymentMethod === 'manual' || orderData.paymentMethod === 'deferred') {
         const orderRef = db.collection('orders').doc(getIdempotentOrderId(userId, attemptId));
+        const invoiceDate = new Date();
+        const invoiceCounter = getInvoiceCounterRef(db, invoiceDate);
         try {
             const transactionOutcome = await db.runTransaction(async (transaction) => {
                 const existingOrderSnap = await transaction.get(orderRef);
@@ -181,17 +192,19 @@ exports.createOrder = functions.runWith({ secrets: [STRIPE_SECRET_KEY, GMAIL_EMA
                     if (existingOrder.userId !== userId || existingOrder.checkoutAttemptId !== attemptId) {
                         throw new functions.https.HttpsError('already-exists', 'Conflit de tentative de commande.');
                     }
-                    return { replayed: true };
+                    return { replayed: true, invoiceNumber: existingOrder.invoiceNumber || null };
                 }
 
                 const stockTrackerManual = {};
                 const serverItems = [];
                 let txTotal = 0;
                 // Firestore impose toutes les lectures avant la première écriture.
-                const itemDocs = await Promise.all(itemRequests.map(({ itemRef }) => transaction.get(itemRef)));
-                const cartSnapshot = await transaction.get(
-                    db.collection('users').doc(userId).collection('cart')
-                );
+                const [itemDocs, cartSnapshot, invoiceCounterSnap] = await Promise.all([
+                    Promise.all(itemRequests.map(({ itemRef }) => transaction.get(itemRef))),
+                    transaction.get(db.collection('users').doc(userId).collection('cart')),
+                    transaction.get(invoiceCounter.ref),
+                ]);
+                const invoiceIdentity = getNextInvoiceIdentity(invoiceCounterSnap, invoiceCounter.series);
                 const submittedQuantityByProduct = new Map();
                 itemRequests.forEach(({ colName, realItemId, quantity }) => {
                     const productKey = `${colName}:${realItemId}`;
@@ -275,6 +288,7 @@ exports.createOrder = functions.runWith({ secrets: [STRIPE_SECRET_KEY, GMAIL_EMA
                         }
                     });
                 });
+                writeInvoiceCounter(transaction, invoiceCounter.ref, invoiceIdentity, admin);
                 transaction.set(orderRef, {
                     items: serverItems,
                     userId: userId,
@@ -286,10 +300,12 @@ exports.createOrder = functions.runWith({ secrets: [STRIPE_SECRET_KEY, GMAIL_EMA
                     // Stock déjà décrémenté atomiquement (pièces uniques / planches).
                     stockReserved: true,
                     checkoutAttemptId: attemptId,
+                    ...invoiceIdentity,
+                    invoiceIssuedAt: admin.firestore.FieldValue.serverTimestamp(),
                     createdAt: admin.firestore.FieldValue.serverTimestamp(),
                     stripeSessionId: null
                 });
-                return { replayed: false };
+                return { replayed: false, invoiceNumber: invoiceIdentity.invoiceNumber };
             });
 
             invalidatePublicCatalogCache();
@@ -298,7 +314,7 @@ exports.createOrder = functions.runWith({ secrets: [STRIPE_SECRET_KEY, GMAIL_EMA
                 orderId: orderRef.id,
                 status: 'pending_payment'
             });
-            return { success: true, orderId: orderRef.id };
+            return { success: true, orderId: orderRef.id, invoiceNumber: transactionOutcome.invoiceNumber || null };
         } catch (e) {
             const isKnownError = e instanceof functions.https.HttpsError;
             logCheckoutEvent(isKnownError ? 'warn' : 'error', 'failed', {
@@ -334,6 +350,8 @@ exports.createOrder = functions.runWith({ secrets: [STRIPE_SECRET_KEY, GMAIL_EMA
         // reste locale à cette branche afin que le virement ne dépende jamais de Stripe.
         const stripe = Stripe(STRIPE_SECRET_KEY.value());
         const orderRef = db.collection('orders').doc(getIdempotentOrderId(userId, attemptId));
+        const invoiceDate = new Date();
+        const invoiceCounter = getInvoiceCounterRef(db, invoiceDate);
 
         // Transaction unique : valider stock + calculer prix serveur + réserver stock + créer commande
         // Remplace l'ancienne double-transaction (validation puis réservation) par une seule opération atomique
@@ -343,9 +361,11 @@ exports.createOrder = functions.runWith({ secrets: [STRIPE_SECRET_KEY, GMAIL_EMA
                 const stockTracker = {};
                 let txTotal = 0;
                 const serverItems = [];
-                const itemDocs = await Promise.all(
-                    itemRequests.map(({ itemRef }) => transaction.get(itemRef))
-                );
+                const [itemDocs, invoiceCounterSnap] = await Promise.all([
+                    Promise.all(itemRequests.map(({ itemRef }) => transaction.get(itemRef))),
+                    transaction.get(invoiceCounter.ref),
+                ]);
+                const invoiceIdentity = getNextInvoiceIdentity(invoiceCounterSnap, invoiceCounter.series);
 
                 for (let index = 0; index < itemRequests.length; index += 1) {
                     const itemRequest = itemRequests[index];
@@ -400,6 +420,7 @@ exports.createOrder = functions.runWith({ secrets: [STRIPE_SECRET_KEY, GMAIL_EMA
 
                 serverTotalAmount = txTotal;
 
+                writeInvoiceCounter(transaction, invoiceCounter.ref, invoiceIdentity, admin);
                 transaction.set(orderRef, {
                     userId: userId,
                     userEmail: context.auth.token.email || orderData.shipping?.email,
@@ -409,6 +430,8 @@ exports.createOrder = functions.runWith({ secrets: [STRIPE_SECRET_KEY, GMAIL_EMA
                     paymentMethod: 'stripe_elements',
                     status: 'pending_payment',
                     stockReserved: true,
+                    ...invoiceIdentity,
+                    invoiceIssuedAt: admin.firestore.FieldValue.serverTimestamp(),
                     createdAt: admin.firestore.FieldValue.serverTimestamp(),
                     stripePaymentIntentId: null
                 });

@@ -9,7 +9,7 @@ const admin = require('firebase-admin');
 const nodemailer = require('nodemailer');
 const { GMAIL_EMAIL, GMAIL_PASSWORD } = require('../../helpers/secrets');
 const { getSiteUrl } = require('../../helpers/config');
-const { generateInvoiceBuffer, getOrderReference } = require('../utils/generateInvoicePDF');
+const { ensureInvoicePdf } = require('../commerce/invoiceStorage');
 
 const GOOGLE_REVIEW_URL = 'https://g.page/r/CepCisGcSHS2EAE/review';
 
@@ -229,11 +229,10 @@ async function sendNewOrderEmails(orderId, order) {
 
     let invoiceAttachment = null;
     try {
-        const pdfBuffer = generateInvoiceBuffer(order);
-        const formatId = getOrderReference(order.id || orderId);
+        const immutableInvoice = await ensureInvoicePdf(orderId, { ...order, id: orderId });
         invoiceAttachment = {
-            filename: `Facture_${formatId}.pdf`,
-            content: pdfBuffer,
+            filename: immutableInvoice.filename,
+            content: immutableInvoice.buffer,
             contentType: 'application/pdf'
         };
         adminMailOptions.attachments = [invoiceAttachment];

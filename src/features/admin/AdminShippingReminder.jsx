@@ -16,7 +16,7 @@ import { AlertTriangle, Bell, CalendarClock, Package, Truck, X } from 'lucide-re
 import { db } from '../../firebase/config';
 import { useAuth } from '../../contexts/AuthContext';
 import { getMillis } from '../../utils/time';
-import { getOrderReference } from '../../utils/generateInvoice';
+import { getOrderReference } from '../../utils/orderReference';
 
 const REMINDER_STATUSES = ['paid', 'pending_payment', 'pending'];
 const REMINDER_QUERY_LIMIT = 50;

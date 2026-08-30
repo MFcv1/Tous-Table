@@ -912,10 +912,18 @@ const CheckoutView = ({ cartItems, total, user, darkMode = false, onBack, onPlac
                                 {!formData.billingSameAsShipping && (
                                     <div className={`mt-4 space-y-3 rounded-2xl border p-4 ${darkMode ? 'bg-stone-950/50 border-stone-800' : 'bg-stone-50 border-stone-200'}`}>
                                         <p className={`text-xs font-black uppercase tracking-widest ${darkMode ? 'text-stone-300' : 'text-stone-700'}`}>Adresse de facturation</p>
-                                        <div>
-                                            <input name="billingName" value={formData.billingName} onChange={handleChange} placeholder="Nom ou raison sociale sur la facture" className={getInputClasses('billingName')} aria-invalid={Boolean(showValidationErrors && validation.errors.billingName)} required />
-                                            {renderFieldError('billingName')}
-                                        </div>
+                                        {clientType === 'entreprise' ? (
+                                            <div className={`rounded-xl border px-4 py-3 ${darkMode ? 'border-stone-800 bg-stone-900/70' : 'border-stone-200 bg-white'}`}>
+                                                <p className="text-[10px] font-black uppercase tracking-widest text-stone-500">Société facturée</p>
+                                                <p className={`mt-1 text-sm font-bold ${darkMode ? 'text-stone-100' : 'text-stone-900'}`}>{formData.companyName || 'Renseignez la raison sociale ci-dessus'}</p>
+                                                <p className="mt-1 text-xs leading-relaxed text-stone-500">Le SIRET et la TVA restent liés à cette société ; seule l’adresse de facturation change.</p>
+                                            </div>
+                                        ) : (
+                                            <div>
+                                                <input name="billingName" value={formData.billingName} onChange={handleChange} placeholder="Nom à faire apparaître sur la facture" className={getInputClasses('billingName')} aria-invalid={Boolean(showValidationErrors && validation.errors.billingName)} required />
+                                                {renderFieldError('billingName')}
+                                            </div>
+                                        )}
                                         <div>
                                             <input name="billingAddress" value={formData.billingAddress} onChange={handleChange} placeholder="Adresse de facturation" className={getInputClasses('billingAddress')} aria-invalid={Boolean(showValidationErrors && validation.errors.billingAddress)} required />
                                             {renderFieldError('billingAddress')}

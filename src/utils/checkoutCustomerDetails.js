@@ -71,7 +71,9 @@ export const getCheckoutValidation = (formData, clientType) => {
     }
 
     if (!formData.billingSameAsShipping) {
-        required(errors, 'billingName', formData.billingName, 'Indiquez le nom à faire apparaître sur la facture.');
+        if (clientType !== 'entreprise') {
+            required(errors, 'billingName', formData.billingName, 'Indiquez le nom à faire apparaître sur la facture.');
+        }
         required(errors, 'billingAddress', formData.billingAddress, "Indiquez l'adresse de facturation.");
         required(errors, 'billingZip', formData.billingZip, 'Indiquez le code postal de facturation.');
         required(errors, 'billingCity', formData.billingCity, 'Indiquez la ville de facturation.');
@@ -111,7 +113,7 @@ export const buildCheckoutCustomerPayload = (formData, clientType) => {
     const billing = formData.billingSameAsShipping
         ? normalizeAddress({ ...shipping, name: companyName || fullName })
         : normalizeAddress({
-            name: formData.billingName,
+            name: isCompany ? companyName : formData.billingName,
             address: formData.billingAddress,
             addressComplement: formData.billingAddressComplement,
             zip: formData.billingZip,

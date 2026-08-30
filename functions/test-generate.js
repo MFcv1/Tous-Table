@@ -1,28 +1,45 @@
+const fs = require('fs');
+const path = require('path');
 const { generateInvoiceBuffer } = require('./src/utils/generateInvoicePDF');
 
+const outputPath = path.resolve(__dirname, '..', 'output', 'pdf', 'facture-entreprise-sandbox.pdf');
 const mockOrder = {
-    id: 'testorder123',
-    total: 10,
-    createdAt: { _seconds: Date.now() / 1000 },
+    id: 'checkout_facture_sandbox',
+    invoiceNumber: 'F-2026-00001',
+    total: 1880,
+    createdAt: { _seconds: Date.UTC(2026, 7, 30, 12, 30) / 1000 },
+    invoiceIssuedAt: { _seconds: Date.UTC(2026, 7, 30, 12, 30) / 1000 },
     shipping: {
-        fullName: 'Matthis F',
-        email: 'matthis.fradin1234@gmail.com',
-        address: '16 Rue François Mitterrand',
-        city: 'Fleury-sur-Orne',
-        zip: '14123',
-        phone: '0782013155'
+        clientType: 'entreprise',
+        companyName: 'Atelier Exemple SARL',
+        fullName: 'Camille Martin',
+        email: 'camille@example.fr',
+        phone: '02 31 00 00 00',
+        siret: '12345678901234',
+        tva: 'FR12123456789',
+        address: '12 rue de la Livraison',
+        city: 'Caen',
+        zip: '14000',
+        country: 'France',
+        billing: {
+            name: 'Atelier Exemple SARL',
+            address: '4 avenue de la Comptabilite',
+            addressComplement: 'Service facturation',
+            city: 'Rouen',
+            zip: '76000',
+            country: 'France',
+        },
     },
     items: [
-        { name: 'planche', quantity: 1, price: 10 }
+        { name: 'Enfilade ancienne en chene massif restauree', quantity: 1, price: 1490 },
+        { name: 'Planche a decouper ancienne', quantity: 2, price: 195 },
     ],
-    userEmail: 'matthis.fradin1234@gmail.com',
+    userEmail: 'camille@example.fr',
     paymentMethod: 'deferred',
-    status: 'pending_payment'
+    status: 'pending_payment',
 };
 
-try {
-    const buf = generateInvoiceBuffer(mockOrder);
-    console.log("PDF généré avec succès, taille:", buf.length, "bytes");
-} catch (e) {
-    console.error("Erreur:", e);
-}
+const buffer = generateInvoiceBuffer(mockOrder);
+fs.mkdirSync(path.dirname(outputPath), { recursive: true });
+fs.writeFileSync(outputPath, buffer);
+console.log(`PDF genere : ${outputPath} (${buffer.length} octets)`);
