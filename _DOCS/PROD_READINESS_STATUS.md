@@ -472,6 +472,15 @@ Correctif prod du 2026-08-30 - double envoi OTP mobile :
 - Correction exclusivement frontend : aucune ecriture Firestore, aucune modification catalogue et aucun deploiement Functions requis.
 - Le collage Gmail/gestionnaire de presse-papiers est aussi distribue dans les six cases OTP. La troncature HTML `maxLength=1`, incompatible avec certains collages Chrome mobile, a ete retiree ; l'etat React conserve un chiffre par case.
 
+Restauration commandes production du 2026-08-30 :
+
+- Accord explicite recu pour restaurer les 18 commandes historiques deja validees dans la conversation et presentes en sandbox.
+- Dry-run : 18/18 sources presentes, aucun ID cible existant, 18/18 comptes Auth prod trouves et UID identiques, adresses et articles presents, montant cumule `15 836 EUR`.
+- `onOrderCreated` protege par un marqueur systeme exact pour ne pas renvoyer les anciens emails lors de cette restauration ; Function ciblee deployee sur sandbox et prod apres `npm run preflight:prod` vert.
+- Import prod atomique via `batch.create` : 18 documents crees, aucun document existant ecrase, aucun stock ni document catalogue modifie.
+- Etat final verifie en lecture : 22 commandes actives et `21 571 EUR` de chiffre d'affaires.
+- Logs prod : 18/18 triggers historiques ignores pour les notifications, 0 erreur Function.
+
 ## Reste a suivre
 
 1. Decider le traitement des legacy env vars Functions: nettoyage + rotation recommandes.

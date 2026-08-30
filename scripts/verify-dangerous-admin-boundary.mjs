@@ -15,6 +15,7 @@ const adminManagement = read('functions/src/auth/adminManagement.js');
 const cancelOrder = read('functions/src/commerce/cancelOrder.js');
 const adminOrders = read('src/features/admin/AdminOrders.jsx');
 const adminShop = read('src/features/admin/AdminShop.jsx');
+const orderEmails = read('functions/src/email/orderEmails.js');
 const rules = read('firestore.rules');
 
 expect('garbage collector réservé au super-admin', /runGarbageCollector[\s\S]*?checkIsSuperAdmin\(context\)/.test(maintenance));
@@ -30,6 +31,7 @@ expect('mise à jour orders limitée aux champs opérationnels', /changed\.hasOn
 expect('suppression directe affiliate_clicks interdite par les règles', /match \/affiliate_clicks\/\{clickId\}[\s\S]*?allow delete: if false;/.test(rules));
 expect('whitelist admin modifiable uniquement par le développeur', /docId == ['"]admin_users['"] \? isDeveloperOwner\(\) : isArtisan\(\)/.test(rules));
 expect('suppression des métadonnées réservée au développeur', /match \/sys_metadata\/\{docId\}[\s\S]*?allow delete: if isDeveloperOwner\(\);/.test(rules));
+expect('import historique ne renvoie pas les anciens emails', /historical-order-recovery[\s\S]*?approved-orders-2026-08-30[\s\S]*?notification skipped/.test(orderEmails));
 
 for (const check of checks) {
     console.log(`${check.condition ? 'PASS' : 'FAIL'} ${check.label}`);

@@ -341,6 +341,14 @@ exports.onOrderCreated = functions.runWith({ secrets: [GMAIL_EMAIL, GMAIL_PASSWO
         console.log('onOrderCreated triggered:', context.params.orderId);
         const order = snap.data();
 
+        if (
+            order.systemImport?.type === 'historical-order-recovery'
+            && order.systemImport?.batchId === 'approved-orders-2026-08-30'
+        ) {
+            console.log('Historical order restored; notification skipped:', context.params.orderId);
+            return null;
+        }
+
         if (order.paymentMethod === 'stripe_elements' && order.status === 'pending_payment') {
             console.log('Commande Stripe Elements en attente de paiement, email reporte.');
             return;
