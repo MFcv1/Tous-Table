@@ -442,6 +442,15 @@ Deploiement prod du 2026-08-30 - connexion sans mot de passe, checkout et securi
 - CLI Firebase remise sur `sandbox (sandboxtat)`.
 - Aucune copie sandbox vers prod, aucune migration et aucune ecriture dans les documents Firestore catalogue/commandes existants.
 
+Correctif prod du 2026-08-30 - authentification SMTP OTP :
+
+- Cause confirmee dans les logs : appels OTP avec Auth et App Check valides, puis echec SMTP Gmail `EAUTH`.
+- Nouveau mot de passe d'application Google cree pour la production et enregistre uniquement dans Secret Manager `GMAIL_PASSWORD`, sans affichage ni versionnement dans le depot.
+- `requestEmailOtp` redeployee et active avec la nouvelle version du secret ; authentification SMTP verifiee sans envoi d'email.
+- Le front transforme desormais les erreurs App Check en message utilisateur et n'affiche plus les messages techniques bruts.
+- `npm run preflight:prod` : OK ; Hosting prod publie et bundle public controle.
+- Aucune ecriture Firestore prod et aucun email de test envoye.
+
 ## Reste a suivre
 
 1. Decider le traitement des legacy env vars Functions: nettoyage + rotation recommandes.
