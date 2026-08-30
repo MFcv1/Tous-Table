@@ -498,7 +498,14 @@ Durcissement facturation sandbox du 2026-08-30 :
 - Conditions de reglement simplifiees : le bloc principal indique uniquement virement exigible a reception, avant expedition, puis expedition apres encaissement. Les mentions de retard obligatoires restent en petite ligne uniquement sur les factures professionnelles et disparaissent des factures particuliers.
 - Recette navigateur entreprise complete sur `sandboxtat` : commande reelle de test `F-2026-00001` a 100 EUR, email du compte confirme, informations juridiques relues dans le checkout, reservation stock atomique, IBAN affiche et emails Functions termines sans erreur.
 - Telechargement client valide depuis `Mes commandes` : `getInvoicePdf` a repondu en HTTP 200 avec Auth et App Check valides ; le PDF Chrome, le fichier Storage prive et l'empreinte rattachee a la commande sont strictement identiques. Rendu A4 inspecte visuellement sans chevauchement ni contenu manquant.
-- Production non modifiee par ce chantier. La parite Functions est volontairement temporairement rouge (34 sandbox / 33 prod) jusqu'a un accord explicite de deploiement production.
+- Accord utilisateur explicite recu pour la recette sandbox puis le deploiement production conditionnel a des controles verts.
+- Commit applicatif : `d89e5f8` (`feat: make invoices immutable and business-ready`).
+- Premier preflight volontairement bloque uniquement par les cinq ecarts attendus du rollout : nouvelle Function et rules deja publiees en sandbox mais absentes de production.
+- Deploiement prod cible : `createOrder`, `getInvoicePdf`, `onOrderCreated`, `onOrderUpdated`, Firestore rules et Storage rules, puis nouveau `npm run preflight:prod` integralement vert avant Hosting.
+- `firebase deploy --only hosting --project tousatable-client` : release production publiee a partir du bundle valide.
+- Post-deploiement : parite 46/46, audit SEO public 32/32, routes principales, `web.app` et `publicCatalog` HTTP 200, catalogue charge sans erreur navigateur et endpoint facture non authentifie refuse en HTTP 401.
+- Donnees production controlees avant et apres : 22 commandes, 21 571 EUR de chiffre d'affaires et Console en rotin toujours disponible avec `stock: 1`; aucune copie sandbox, aucune commande de test et aucune ecriture catalogue en production.
+- CLI Firebase conservee sur `sandboxtat`.
 
 ## Reste a suivre
 
