@@ -470,6 +470,7 @@ Correctif prod du 2026-08-30 - double envoi OTP mobile :
 - L'envoi possede maintenant un verrou synchrone contre les doubles requetes. Un HTTP 429 conserve l'ecran de saisie et indique qu'un code vient deja d'etre envoye.
 - Gate OTP porte a 12/12 avec controles du verrou d'envoi et du comportement 429.
 - Correction exclusivement frontend : aucune ecriture Firestore, aucune modification catalogue et aucun deploiement Functions requis.
+- Le collage Gmail/gestionnaire de presse-papiers est aussi distribue dans les six cases OTP. La troncature HTML `maxLength=1`, incompatible avec certains collages Chrome mobile, a ete retiree ; l'etat React conserve un chiffre par case.
 
 ## Reste a suivre
 

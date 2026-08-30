@@ -22,6 +22,7 @@ const checks = [
   ['panier ne contient plus de portail auth forcé', !cart.includes('AuthPanel') && !cart.includes('onRequireAuth')],
   ['envoi OTP verrouillé contre les doubles requêtes', emailOtpFlow.includes('sendInFlight.current')],
   ['un HTTP 429 conserve l’écran de saisie du code', emailOtpFlow.includes("code.includes('http-429')") && emailOtpFlow.includes("Un code vient déjà d'être envoyé")],
+  ['collage OTP distribué dans les six cases sans troncature HTML', emailOtpFlow.includes('onPaste={pasteCode}') && !emailOtpFlow.includes('maxLength={1}')],
 ];
 
 let failed = 0;

@@ -219,7 +219,7 @@ const EmailOtpFlow = ({
         </form>
       ) : (
         <form onSubmit={verifyCode} className="space-y-3">
-          <div className="grid grid-cols-6 gap-1.5 sm:gap-2" onPaste={pasteCode}>
+          <div className="grid grid-cols-6 gap-1.5 sm:gap-2">
             {digits.map((digit, index) => (
               <input
                 key={index}
@@ -229,11 +229,11 @@ const EmailOtpFlow = ({
                 autoComplete={index === 0 ? 'one-time-code' : 'off'}
                 value={digit}
                 onChange={(event) => changeDigit(index, event.target.value)}
+                onPaste={pasteCode}
                 onKeyDown={(event) => {
                   if (event.key === 'Backspace' && !digits[index] && index > 0) inputRefs.current[index - 1]?.focus();
                 }}
                 disabled={busy}
-                maxLength={1}
                 aria-label={`Chiffre ${index + 1} du code`}
                 className={`h-12 min-w-0 rounded-xl border text-center text-lg font-black outline-none transition-all sm:h-14 ${fieldClass}`}
               />
