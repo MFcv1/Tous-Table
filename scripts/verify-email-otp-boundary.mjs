@@ -4,6 +4,7 @@ const read = (path) => fs.readFileSync(new URL(`../${path}`, import.meta.url), '
 const backend = read('functions/src/auth/emailOtp.js');
 const createOrder = read('functions/src/commerce/createOrder.js');
 const authPanel = read('src/components/auth/AuthPanel.jsx');
+const emailOtpFlow = read('src/components/auth/EmailOtpFlow.jsx');
 const loginView = read('src/pages/LoginView.jsx');
 const checkout = read('src/pages/CheckoutView.jsx');
 const cart = read('src/components/cart/CartSidebar.jsx');
@@ -19,6 +20,8 @@ const checks = [
   ['checkout exige l’identité email correspondante côté serveur', createOrder.includes('email_identity_mismatch')],
   ['checkout invité contient le flux OTP', checkout.includes('<EmailOtpFlow')],
   ['panier ne contient plus de portail auth forcé', !cart.includes('AuthPanel') && !cart.includes('onRequireAuth')],
+  ['envoi OTP verrouillé contre les doubles requêtes', emailOtpFlow.includes('sendInFlight.current')],
+  ['un HTTP 429 conserve l’écran de saisie du code', emailOtpFlow.includes("code.includes('http-429')") && emailOtpFlow.includes("Un code vient déjà d'être envoyé")],
 ];
 
 let failed = 0;

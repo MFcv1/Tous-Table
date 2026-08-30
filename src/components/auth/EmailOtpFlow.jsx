@@ -6,6 +6,15 @@ const EMPTY_CODE = ['', '', '', '', '', ''];
 const normalizeEmail = (value) => String(value || '').trim().toLowerCase();
 const isValidEmail = (value) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizeEmail(value));
 
+function isOtpRateLimitError(error) {
+  const code = String(error?.code || '').toLowerCase();
+  const message = String(error?.message || '').toLowerCase();
+  return code.includes('resource-exhausted')
+    || code.includes('too-many-requests')
+    || code.includes('http-429')
+    || message.includes('too many requests');
+}
+
 function getOtpError(error, fallback) {
   const code = String(error?.code || '').toLowerCase();
   const message = String(error?.message || '').toLowerCase();
@@ -18,7 +27,7 @@ function getOtpError(error, fallback) {
   ) {
     return 'La vérification de sécurité a besoin de quelques secondes. Patientez, puis réessayez.';
   }
-  if (code.includes('resource-exhausted') || code.includes('too-many-requests')) {
+  if (isOtpRateLimitError(error)) {
     return 'Trop de demandes. Patientez avant de réessayer.';
   }
   if (code.includes('deadline-exceeded')) return 'Ce code a expiré. Demandez-en un nouveau.';
@@ -53,6 +62,7 @@ const EmailOtpFlow = ({
   const [message, setMessage] = useState('');
   const [resendAfter, setResendAfter] = useState(0);
   const inputRefs = useRef([]);
+  const sendInFlight = useRef(false);
   const verifyInFlight = useRef(false);
   const sentEmailRef = useRef('');
 
@@ -76,12 +86,13 @@ const EmailOtpFlow = ({
 
   const sendCode = async (event) => {
     event?.preventDefault?.();
-    if (busy || resendAfter > 0) return;
+    if (sendInFlight.current || busy || resendAfter > 0) return;
     if (!isValidEmail(normalizedEmail)) {
       setStatus('error');
       setMessage('Saisissez une adresse email valide.');
       return;
     }
+    sendInFlight.current = true;
     setStatus('sending');
     setMessage('Envoi du code en cours…');
     setDigits(EMPTY_CODE);
@@ -94,8 +105,19 @@ const EmailOtpFlow = ({
       setMessage(`Code envoyé à ${normalizedEmail}.`);
       window.setTimeout(() => inputRefs.current[0]?.focus(), 80);
     } catch (error) {
-      setStatus('error');
-      setMessage(getOtpError(error, "Impossible d'envoyer le code."));
+      if (isOtpRateLimitError(error)) {
+        // A previous request may already have delivered the code. Keep the user
+        // on the code screen instead of replacing that success with a false error.
+        setResendAfter((value) => Math.max(value, 60));
+        setStatus('sent');
+        setMessage(`Un code vient déjà d'être envoyé à ${normalizedEmail}.`);
+        window.setTimeout(() => inputRefs.current[0]?.focus(), 80);
+      } else {
+        setStatus('error');
+        setMessage(getOtpError(error, "Impossible d'envoyer le code."));
+      }
+    } finally {
+      sendInFlight.current = false;
     }
   };
 

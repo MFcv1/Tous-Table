@@ -463,6 +463,14 @@ Alignement infrastructure sandbox/prod du 2026-08-30 :
 - Builds Hosting sandbox et prod republies ; aucun document catalogue, commande ou utilisateur modifie par l'audit.
 - Le token debug App Check qui etait embarque dans l'ancien bundle prod a ete retire du build et revoque cote production ; il reste autorise uniquement en sandbox pour localhost. Les gates env et bundle bloquent son retour.
 
+Correctif prod du 2026-08-30 - double envoi OTP mobile :
+
+- Les logs prod confirment un premier `requestEmailOtp` reussi en HTTP 200 avec `email_otp_sent`, suivi quelques secondes plus tard d'un second appel HTTP 429 pour la meme demande.
+- Le code avait donc bien ete envoye ; l'erreur du second appel ecrasait a tort le message de succes dans l'interface.
+- L'envoi possede maintenant un verrou synchrone contre les doubles requetes. Un HTTP 429 conserve l'ecran de saisie et indique qu'un code vient deja d'etre envoye.
+- Gate OTP porte a 12/12 avec controles du verrou d'envoi et du comportement 429.
+- Correction exclusivement frontend : aucune ecriture Firestore, aucune modification catalogue et aucun deploiement Functions requis.
+
 ## Reste a suivre
 
 1. Decider le traitement des legacy env vars Functions: nettoyage + rotation recommandes.
