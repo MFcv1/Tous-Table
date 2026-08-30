@@ -426,6 +426,22 @@ Changement local du 2026-05-29 - gate categories meubles prod :
 - Verification : `npm run verify:prod-furniture` OK.
 - Aucune ecriture Firestore prod, aucune modification rules, aucun deploy.
 
+Deploiement prod du 2026-08-30 - connexion sans mot de passe, checkout et securite commandes :
+
+- Accord utilisateur explicite recu : demande de commit et deploiement production.
+- Commit applicatif : `a5e3ea2` (`feat: secure passwordless checkout and order flow`).
+- Connexion par code email a 6 chiffres, panier invite/migration de compte, checkout particulier/entreprise, commande par virement, facture et restauration de stock deployes.
+- Operations destructives reservees au compte developpeur ; compte admin client limite aux operations quotidiennes.
+- Secret prod `OTP_HMAC_SECRET` cree dans Secret Manager sans valeur affichee ni versionnee.
+- Dependances frontend et Functions mises a jour ; `npm audit --omit=dev` et `npm --prefix functions audit --omit=dev` : 0 vulnerabilite.
+- `npm run preflight:prod` : OK avec env prod, catalogue 53 meubles, SEO 25/25, analytics, panier, securite admin 13/13, OTP 10/10, syntaxe Functions, audits dependances, build prod et bundle prod.
+- `firebase deploy --only functions --project tousatable-client` : OK, 33 Functions actives dont `requestEmailOtp`, `verifyEmailOtp` et `cancelAndDeleteOrderAdmin`.
+- `firebase deploy --only firestore:rules --project tousatable-client` : OK, regles compilees et publiees.
+- `firebase deploy --only hosting --project tousatable-client` : OK, release Hosting publiee.
+- Post-deploy : audit Functions OK (33 Functions, 15 secrets attaches), audit SEO public 32/32, domaine public, routes catalogue/comptoir/admin, `web.app` et `publicCatalog` HTTP 200.
+- CLI Firebase remise sur `sandbox (sandboxtat)`.
+- Aucune copie sandbox vers prod, aucune migration et aucune ecriture dans les documents Firestore catalogue/commandes existants.
+
 ## Reste a suivre
 
 1. Decider le traitement des legacy env vars Functions: nettoyage + rotation recommandes.
