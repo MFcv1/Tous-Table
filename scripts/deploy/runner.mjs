@@ -1,6 +1,12 @@
 import { spawn, execSync } from 'node:child_process';
 import { DEPLOY_TARGETS } from './config.mjs';
 
+const PROD_PREFLIGHT_VALIDITY_MS = 15 * 60 * 1000;
+const PROD_PROJECT_ID = 'tousatable-client';
+let prodPreflightPassedAt = 0;
+
+const isProductionTarget = (envConfig) => envConfig.projectId === PROD_PROJECT_ID;
+
 function runLive(command, args) {
   return new Promise((resolve, reject) => {
     const proc = spawn(command, args, {
@@ -49,7 +55,37 @@ export async function buildProject(envConfig) {
   }
 }
 
+export async function runProdPreflight(envConfig) {
+  prodPreflightPassedAt = 0;
+
+  if (!isProductionTarget(envConfig)) {
+    return { ok: true, buildReady: false };
+  }
+
+  try {
+    await runLive('npm', ['run', 'preflight:prod']);
+    prodPreflightPassedAt = Date.now();
+    return { ok: true, buildReady: true };
+  } catch (err) {
+    return { ok: false, buildReady: false, error: err.message };
+  }
+}
+
 async function deployOnly(targets, envConfig) {
+  const isProd = isProductionTarget(envConfig);
+  const hasFreshProdPreflight = prodPreflightPassedAt > 0
+    && Date.now() - prodPreflightPassedAt <= PROD_PREFLIGHT_VALIDITY_MS;
+
+  if (isProd && !hasFreshProdPreflight) {
+    return {
+      ok: false,
+      error: 'Déploiement production bloqué : le contrôle complet preflight:prod doit réussir juste avant.',
+    };
+  }
+
+  // Un preflight production ne peut autoriser qu'une seule tentative de déploiement.
+  if (isProd) prodPreflightPassedAt = 0;
+
   try {
     await runLive('firebase', [
       'deploy',

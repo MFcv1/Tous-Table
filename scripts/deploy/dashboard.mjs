@@ -20,6 +20,7 @@ import {
   deployFirestore,
   deployFunctions,
   deployStorage,
+  runProdPreflight,
   switchProject,
 } from './runner.mjs';
 
@@ -114,12 +115,36 @@ async function switchToEnv() {
   return true;
 }
 
-async function runBuildGate() {
-  step(`BUILD ${ACTIVE_ENV.label} (npm run ${ACTIVE_ENV.buildScript})`);
-  const result = await buildProject(ACTIVE_ENV);
+async function runMandatoryProdPreflight() {
+  if (ACTIVE_ENV.projectId !== ENVIRONMENTS.prod.projectId) {
+    return { ok: true, buildReady: false };
+  }
+
+  step('CONTROLE COMPLET OBLIGATOIRE AVANT PRODUCTION');
+  console.log(chalk.gray('  Vérification du code, des autorisations Google, des Functions, des secrets, des règles et du build production.'));
+  console.log('');
+
+  const result = await runProdPreflight(ACTIVE_ENV);
   if (!result.ok) {
-    fail(`Build échoué : ${result.error}`);
-    return false;
+    fail('Production bloquée : le contrôle complet n’a pas réussi. Aucun déploiement n’a été lancé.');
+    return result;
+  }
+
+  ok('Contrôle complet production réussi. Le déploiement peut continuer.');
+  return result;
+}
+
+async function runBuildGate({ reuseExistingBuild = false } = {}) {
+  if (reuseExistingBuild) {
+    step('BUILD PRODUCTION DEJA VERIFIE');
+    ok('Le build créé par preflight:prod est réutilisé sans seconde compilation.');
+  } else {
+    step(`BUILD ${ACTIVE_ENV.label} (npm run ${ACTIVE_ENV.buildScript})`);
+    const result = await buildProject(ACTIVE_ENV);
+    if (!result.ok) {
+      fail(`Build échoué : ${result.error}`);
+      return false;
+    }
   }
 
   step('VERIFICATION POST-BUILD');
@@ -139,8 +164,10 @@ async function runHostingDeploy() {
   step('PRE-CHECKS');
   const checks = runPreChecks();
   if (!checks.ok) { fail(checks.error); return; }
+  const preflight = await runMandatoryProdPreflight();
+  if (!preflight.ok) return;
   if (!await switchToEnv()) return;
-  if (!await runBuildGate()) return;
+  if (!await runBuildGate({ reuseExistingBuild: preflight.buildReady })) return;
 
   step(`DEPLOIEMENT HOSTING -> ${ACTIVE_ENV.label}`);
   console.log(chalk.gray(`  firebase deploy --only ${DEPLOY_TARGETS.hosting} --project ${ACTIVE_ENV.projectId}`));
@@ -159,6 +186,8 @@ async function runFunctionsDeploy() {
   step(`DEPLOY FUNCTIONS -> ${ACTIVE_ENV.label}`);
   const checks = runPreChecks();
   if (!checks.ok) { fail(checks.error); return; }
+  const preflight = await runMandatoryProdPreflight();
+  if (!preflight.ok) return;
   if (!await switchToEnv()) return;
 
   console.log(chalk.gray(`\n  firebase deploy --only ${DEPLOY_TARGETS.functions} --project ${ACTIVE_ENV.projectId}\n`));
@@ -171,6 +200,8 @@ async function runFirestoreDeploy() {
   step(`DEPLOY FIRESTORE RULES + INDEXES -> ${ACTIVE_ENV.label}`);
   const checks = runPreChecks();
   if (!checks.ok) { fail(checks.error); return; }
+  const preflight = await runMandatoryProdPreflight();
+  if (!preflight.ok) return;
   if (!await switchToEnv()) return;
 
   console.log(chalk.gray(`\n  firebase deploy --only ${DEPLOY_TARGETS.firestore} --project ${ACTIVE_ENV.projectId}\n`));
@@ -183,6 +214,8 @@ async function runStorageDeploy() {
   step(`DEPLOY STORAGE RULES -> ${ACTIVE_ENV.label}`);
   const checks = runPreChecks();
   if (!checks.ok) { fail(checks.error); return; }
+  const preflight = await runMandatoryProdPreflight();
+  if (!preflight.ok) return;
   if (!await switchToEnv()) return;
 
   console.log(chalk.gray(`\n  firebase deploy --only ${DEPLOY_TARGETS.storage} --project ${ACTIVE_ENV.projectId}\n`));
@@ -211,8 +244,10 @@ async function runEverythingDeploy() {
   step('PRE-CHECKS');
   const checks = runPreChecks();
   if (!checks.ok) { fail(checks.error); return; }
+  const preflight = await runMandatoryProdPreflight();
+  if (!preflight.ok) return;
   if (!await switchToEnv()) return;
-  if (!await runBuildGate()) return;
+  if (!await runBuildGate({ reuseExistingBuild: preflight.buildReady })) return;
 
   step(`DEPLOIEMENT COMPLET -> ${ACTIVE_ENV.label}`);
   const only = [

@@ -507,6 +507,14 @@ Durcissement facturation sandbox du 2026-08-30 :
 - Donnees production controlees avant et apres : 22 commandes, 21 571 EUR de chiffre d'affaires et Console en rotin toujours disponible avec `stock: 1`; aucune copie sandbox, aucune commande de test et aucune ecriture catalogue en production.
 - CLI Firebase conservee sur `sandboxtat`.
 
+Durcissement dashboard de deploiement du 2026-08-30 :
+
+- Toute action du dashboard visant `PRODUCTION` lance maintenant automatiquement `npm run preflight:prod` avant de basculer le CLI ou de publier.
+- Un echec du preflight bloque le deploiement avant toute commande `firebase deploy`.
+- La couche d'execution exige aussi un preflight prod reussi et recent, consommable par une seule tentative, afin qu'un futur oubli dans l'interface ne puisse pas contourner le verrou.
+- Hosting et le deploiement complet reutilisent le build prod deja cree et verifie par le preflight.
+- Verification locale : syntaxe des modules de deploiement, refus reel d'une tentative prod sans preflight et `npm run preflight:prod` integralement OK (parite 46/46, audits, build et bundle) ; aucun deploiement et aucune ecriture Firestore effectues.
+
 ## Reste a suivre
 
 1. Decider le traitement des legacy env vars Functions: nettoyage + rotation recommandes.

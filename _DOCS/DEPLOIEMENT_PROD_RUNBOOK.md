@@ -34,6 +34,13 @@ Commande equivalente:
 npm run preflight:prod
 ```
 
+Le dashboard `npm run dashboard` applique aussi ce gate automatiquement des que
+`PRODUCTION` est selectionne, quel que soit le type de deploiement. Si le preflight
+echoue, aucune commande `firebase deploy` n'est lancee. La couche d'execution refuse
+egalement tout deploiement prod qui n'est pas precede d'un preflight reussi dans la
+meme session. Pour Hosting ou un deploiement complet, le build valide par le preflight
+est reutilise sans recompilation.
+
 Etat attendu:
 
 - `verify:prod-env` passe si `.env.prod` pointe vers Firebase prod.
