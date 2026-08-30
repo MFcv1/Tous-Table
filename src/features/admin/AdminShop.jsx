@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import {
     collection, onSnapshot, addDoc, updateDoc, deleteDoc,
-    doc, serverTimestamp, query, orderBy, getDocs, writeBatch, limit
+    doc, serverTimestamp, query, orderBy, limit
 } from 'firebase/firestore';
-import { db, appId } from '../../firebase/config';
+import { httpsCallable } from 'firebase/functions';
+import { db, appId, functions } from '../../firebase/config';
 import {
     Plus, Pencil, Trash2, ExternalLink, Eye, EyeOff,
     Star, StarOff, MousePointerClick, ShoppingBag, TrendingUp,
@@ -678,7 +679,7 @@ const ProductList = ({ products, onEdit, onDelete, onToggleStatus, onToggleFeatu
 
 // ─── COMPOSANT PRINCIPAL ──────────────────────────────────────────────────────
 
-const AdminShop = ({ darkMode }) => {
+const AdminShop = ({ darkMode, canUseDangerousAdminActions = false }) => {
     const [products, setProducts] = useState([]);
     const [clickCountsByProduct, setClickCountsByProduct] = useState({});
     const [totalTrackedClicks, setTotalTrackedClicks] = useState(0);
@@ -742,28 +743,7 @@ const AdminShop = ({ darkMode }) => {
         if (!confirm("Êtes-vous sûr de remettre à zéro les compteurs de clics pour TOUS les produits ?")) return;
         setIsResetting(true);
         try {
-            const clicksRef = collection(db, 'affiliate_clicks');
-            let keepDeleting = true;
-
-            while (keepDeleting) {
-                const pageQuery = query(clicksRef, orderBy('timestamp', 'asc'), limit(450));
-                const page = await getDocs(pageQuery);
-
-                if (page.empty) {
-                    keepDeleting = false;
-                    continue;
-                }
-
-                const batch = writeBatch(db);
-                page.docs.forEach((clickDoc) => {
-                    batch.delete(clickDoc.ref);
-                });
-                await batch.commit();
-
-                if (page.size < 450) {
-                    keepDeleting = false;
-                }
-            }
+            await httpsCallable(functions, 'clearAllAffiliateClicks')({});
         } catch (error) {
             console.error("Erreur reset clics :", error);
             alert("Erreur lors de la réinitialisation.");
@@ -809,7 +789,7 @@ const AdminShop = ({ darkMode }) => {
                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 md:gap-0">
                     <h2 className={`text-3xl font-black tracking-tighter ${darkMode ? 'text-white' : 'text-stone-900'}`}>Le Comptoir — Boutique</h2>
                     <div className="flex flex-wrap items-center gap-3">
-                        <button
+                        {canUseDangerousAdminActions && <button
                             onClick={handleResetAllClicks}
                             disabled={isResetting || kpis.totalClicks === 0}
                             className={`flex items-center gap-2 px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${
@@ -820,7 +800,7 @@ const AdminShop = ({ darkMode }) => {
                         >
                             <Trash2 size={12} />
                             {isResetting ? 'Reset en cours...' : 'Reset Stats Clics'}
-                        </button>
+                        </button>}
                     </div>
                 </div>
             </div>

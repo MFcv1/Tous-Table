@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { collection, query, orderBy, onSnapshot, doc, updateDoc, deleteDoc, limit } from 'firebase/firestore';
-import { db, appId } from '../../firebase/config';
+import { collection, query, orderBy, onSnapshot, doc, updateDoc, limit } from 'firebase/firestore';
+import { httpsCallable } from 'firebase/functions';
+import { db, functions } from '../../firebase/config';
 import { Package, Clock, CheckCircle, Mail, ChevronDown, ChevronUp, Download, Loader2, Truck, XCircle } from 'lucide-react';
 import { exportRowsToCsv } from '../../utils/csvExport';
 
-const AdminOrders = ({ darkMode = false }) => {
+const AdminOrders = ({ darkMode = false, canUseDangerousAdminActions = false }) => {
     const [orders, setOrders] = useState([]);
     const [expandedOrder, setExpandedOrder] = useState(null);
     const [orderLimit, setOrderLimit] = useState(10);
@@ -26,54 +27,13 @@ const AdminOrders = ({ darkMode = false }) => {
         await updateDoc(doc(db, 'orders', order.id), { status: newStatus });
     };
 
-    // Helper to get collection name (handles inconsistencies/legacy data)
-    const getCollectionFromItem = (item) => {
-        if (item.collection) return item.collection; // New Stripe Format
-        if (item.collectionName) return item.collectionName; // Old Cart Format
-        // Fallback guess based on usage? Or default to furniture. Safe to verify?
-        // Most items have it.
-        return 'furniture';
-    };
-
     const handleCancelAndRestore = async (order) => {
+        if (!canUseDangerousAdminActions) return;
         if (!window.confirm("⚠️ ATTENTION : \n\nVous allez ANNULER cette commande.\n\nACTIONS AUTOMATIQUES :\n1. Le stock des produits sera REMIS à jour (+1).\n2. Les produits seront marqués comme 'Non Vendu'.\n3. La commande sera SUPPRIMÉE définitivement (invisible client/admin).\n\nConfirmer ?")) return;
 
         try {
             setIsLoading(true);
-
-            // 1. Restaurer le Stock pour chaque article
-            if (order.items && order.items.length > 0) {
-                // Import increment dynamically
-                const { increment, updateDoc, getDoc } = await import('firebase/firestore');
-
-                for (const item of order.items) {
-                    // Determine ID and Collection
-                    const itemId = item.originalId || item.id;
-                    const col = getCollectionFromItem(item); // Need helper or simple check
-
-                    if (!itemId) continue;
-
-                    // Check both collections if unsure, but usually we have data
-                    // Let's assume 'furniture' or 'cutting_boards'
-                    const finalCol = col === 'cutting_boards' ? 'cutting_boards' : 'furniture';
-
-                    const itemRef = doc(db, 'artifacts', appId, 'public', 'data', finalCol, itemId);
-                    const itemSnap = await getDoc(itemRef);
-
-                    if (itemSnap.exists()) {
-                        await updateDoc(itemRef, {
-                            stock: finalCol === 'furniture' ? 1 : increment(item.quantity || 1),
-                            sold: false, // Mark as available again
-                            soldAt: null,
-                            buyerId: null
-                        });
-                        console.log(`Restored stock for ${item.name}`);
-                    }
-                }
-            }
-
-            // 2. Supprimer la commande
-            await deleteDoc(doc(db, 'orders', order.id));
+            await httpsCallable(functions, 'cancelAndDeleteOrderAdmin')({ orderId: order.id });
 
             // UI Update handled by snapshot
             alert("Commande annulée et stocks restaurés avec succès !");
@@ -245,8 +205,8 @@ const AdminOrders = ({ darkMode = false }) => {
                                                     ) : null}
                                                 </div>
 
-                                                {/* Smart Cancel Button */}
-                                                <button
+                                                {/* Destructive cancellation is developer-only. */}
+                                                {canUseDangerousAdminActions && <button
                                                     onClick={(e) => {
                                                         e.stopPropagation();
                                                         handleCancelAndRestore(order);
@@ -260,7 +220,7 @@ const AdminOrders = ({ darkMode = false }) => {
                                                 >
                                                     <XCircle size={16} className="group-hover:rotate-90 transition-transform" />
                                                     Annuler & Restaurer
-                                                </button>
+                                                </button>}
                                             </div>                                     </div>
                                         </div>
 

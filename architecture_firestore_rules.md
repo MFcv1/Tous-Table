@@ -53,3 +53,21 @@ Si "Tous à Table" ouvre demain un site annexe en marque blanche ou une applicat
 ---
 
 **Bilan Technique :** Cette modification "fortuite" (introduite initialement lors du débogage d'App Check) s'avère être la validation pure et dure des normes d'architecture logicielle modernes ("DRY" - Don't Repeat Yourself). Elle est **indispensable** au bon fonctionnement du multi-projet.
+
+## 4. Frontière des opérations destructrices (2026-08-29)
+
+Les comptes avec custom claim `admin` gardent les lectures et mises à jour nécessaires à
+l'exploitation. Les suppressions critiques ne passent plus par le SDK client :
+
+- `orders/{orderId}` : lecture/mise à jour admin, création et suppression directes
+  interdites ; les mises à jour client admin sont limitées au statut opérationnel et
+  aux rappels d'expédition ; l'annulation destructive passe par une callable développeur ;
+- `affiliate_clicks/{clickId}` : création authentifiée et lecture admin conservées,
+  suppression directe interdite ;
+- `sys_metadata/admin_users` : lecture admin seulement et écriture réservée à l'e-mail
+  développeur exact ; les autres métadonnées gardent leurs créations/mises à jour admin,
+  mais leur suppression est réservée au développeur.
+
+Cette règle est commune aux deux environnements. Elle est locale et doit être déployée
+avec les Functions correspondantes pour éviter une période où l'interface et la
+frontière serveur seraient désalignées.

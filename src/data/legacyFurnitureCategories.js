@@ -2,7 +2,6 @@
 // Keep this as display/filter metadata only: it must not be written back to Firestore.
 export const LEGACY_FURNITURE_CATEGORY_BY_ID = {
   adHBwlKyiudEjP9ChKaG: 'autre', // Ancienne credence
-  zHwnm17ybqkWCmr0Kz2a: 'buffet', // Buffet
   IvIngpikD1u276Qiv1zo: 'chaise', // Tabouret industriel
   mHUsTLrBYvDbqXQ4HlH9: 'chaise', // Lot de 6 chaises espagnol
   Yrq9LuSgEuYJUZaSIaTF: 'buffet', // Meuble de metier
@@ -11,12 +10,9 @@ export const LEGACY_FURNITURE_CATEGORY_BY_ID = {
   BGo9WUQ5i2ye7GWWEj6Z: 'table', // No30 Table de ferme
   '20yC5bioF0EofPenVvHC': 'table', // No36 table de jack
   bhN8fMYAANLLNBKNUQBY: 'table', // No38 table de ferme fabrication artisanale
-  Zxiiz1aQgT7NG8IxGhxU: 'table', // Table basse style ethnique
   GhpesY9osftcuMmaD1lw: 'table', // Table monastere
-  O9nOJSI5v7CGVxsWMpWJ: 'table', // No40 table de ferme ancienne
   i6NBt9fdWxSPp4SOxxqM: 'chaise', // Paire de nourrice
   Evv6w9dEUuxkOlxuYEM8: 'chaise', // Tabouret vintage
-  Sbi5LHe6v3SjtUbY2eqx: 'chaise', // Tabouret demi-lune bicolore
   TUfnDGIKwTIoYrr1bSxI: 'chaise', // Tabouret pied tourne
   X6SzHhFrA9xHp7RWXDL2: 'chaise', // Tabouret annees 70 en hetre
   eZIFTz7uIWCbEUpkGuuk: 'chaise', // Tabouret demi-lune couleur beige

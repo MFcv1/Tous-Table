@@ -331,3 +331,91 @@ Toutes les failles critiques sont corrigées. Les anomalies restantes sont de cr
 
 *Audit réalisé le 18 Février 2026 à 23:20. Enforcement App Check activé sur les deux environnements.*
 *Prochain audit recommandé : Après ajout de nouvelles fonctionnalités ou dans 3 mois.*
+
+## Correctif local 2026-08-29 — opérations dangereuses réservées au développeur
+
+Invariant retenu : seul le compte Firebase dont l'e-mail normalisé est
+`matthis.fradin2@gmail.com` peut déclencher une suppression ou une purge système.
+Un autre compte portant le custom claim `admin` conserve la gestion ordinaire du site,
+mais pas les opérations irréversibles.
+
+Changements locaux :
+
+- `runGarbageCollector`, suppressions/purges analytics et gestion de la whitelist admin
+  utilisent `checkIsSuperAdmin` côté Cloud Functions ;
+- l'annulation destructrice admin d'une commande passe par
+  `cancelAndDeleteOrderAdmin`, qui restaure les stocks et supprime la commande dans une
+  transaction serveur unique ;
+- les suppressions directes de `orders` et `affiliate_clicks` sont interdites par les
+  règles Firestore ;
+- les mises à jour admin de commandes sont limitées à `status` et
+  `shippingReminderSnoozes`, avec une liste fermée de statuts opérationnels ;
+- `sys_metadata/admin_users` n'est plus public et n'est modifiable côté client que par
+  le compte développeur ; toute suppression de métadonnée système est également
+  réservée à ce compte ;
+- les boutons concernés sont absents de l'interface du compte client admin ; les
+  changements de statut, exports, lectures analytics et CRUD catalogue restent
+  disponibles.
+
+Vérifications locales :
+
+```bash
+node --test functions/helpers/security.test.js
+node scripts/verify-dangerous-admin-boundary.mjs
+npm run verify:functions-syntax
+npm run verify:analytics-reliability
+npm run build
+```
+
+Résultat : tests d'autorisation 5/5, vérificateur de frontière 15/15, syntaxe Functions,
+analytics et build réussis. Le build conserve seulement les avertissements historiques
+CSS/assets/chunks.
+
+État : **déployé uniquement sur `sandboxtat`** avec les règles, Functions concernées et
+le frontend coordonnés. Les parcours OTP/Google et commande virement ont été validés ;
+aucune opération destructive n'a été déclenchée en recette. L'audit sécurité du patch a
+fermé 32/32 fichiers sans finding. Aucun changement n'a été déployé en production.
+
+Pour l'OTP sandbox, le service account `sandboxtat@appspot.gserviceaccount.com` possède
+`roles/iam.serviceAccountTokenCreator` uniquement sur lui-même. Cette délégation lui
+permet de signer le custom token Firebase après validation du code ; elle ne donne pas
+ce droit sur un autre service account et n'a pas été ajoutée en production.
+
+## Correctif local 2026-08-30 — frontière de panier entre comptes
+
+Invariant : les données du panier Firestore d'un UID ne doivent jamais être écrites dans
+un stockage navigateur migrable vers un autre UID. Firestore reste la seule source de
+vérité d'un compte connecté ; `tat_local_cart` est exclusivement un panier invité.
+
+Le stockage invité utilise désormais une enveloppe versionnée et explicitement marquée
+`scope: guest`. Les anciens tableaux sans propriétaire sont ignorés, car ils peuvent être
+un ancien miroir de compte et leur migration serait ambiguë. Avant toute migration, le
+transfert est revendiqué par un UID et reçoit un identifiant stable persisté sur les lignes
+Firestore. Un autre UID ne peut ni le lire, ni le migrer, ni l'effacer. Cela rend le retry
+idempotent même si Firestore a appliqué le commit mais que sa réponse réseau est perdue.
+La source locale n'est effacée qu'après confirmation Firestore ; un échec déclenche un
+backoff automatique et une reprise immédiate lorsque le navigateur repasse en ligne.
+Les mutations de cette source sont sérialisées entre onglets avec Web Locks. Si ce verrou
+n'est pas disponible, la revendication échoue fermée : le panier reste local et n'est pas
+copié vers un UID ambigu. Les transferts interrompus restent séparés d'un nouveau panier
+invité et leurs marqueurs ne sont pas supprimés tant qu'ils peuvent encore être rejoués.
+
+L'état affiché porte également une clé propriétaire : dès que Firebase passe de A à B,
+le panier A n'est plus rendu et ne peut pas être envoyé au checkout sous l'identité B,
+même avant l'arrivée du premier snapshot Firestore de B.
+
+Les lignes panier utilisent un identifiant déterministe par `(collection, produit)` et la
+migration est transactionnelle : deux onglets concurrents relisent automatiquement la
+version gagnante avant d'écrire. La commande différée suit le même principe avec un
+`attemptId` stable et un document serveur déterministe ; une réponse perdue est rejouée
+sans créer une seconde commande ni décrémenter le stock une seconde fois. La transaction
+de commande lit toutes les lignes panier, legacy et canoniques, puis ne retire que la
+quantité soumise ; les ajouts concurrents et le panier d'un replay sont conservés.
+
+L'annulation ne restaure pas un stock déjà libéré par un webhook ou marqué
+`stockReserved: false`. Ce garde vaut aussi pour la suppression développeur d'une
+commande et empêche le double-crédit de stock après `payment_failed`/`canceled`.
+
+Vérification dédiée : `npm run verify:cart-boundary`, intégrée au preflight prod. Le
+frontend et `createOrder` corrigés sont déployés uniquement sur `sandboxtat`. Aucun
+déploiement production n'a été effectué.

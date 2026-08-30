@@ -9,6 +9,7 @@
 const functions = require('firebase-functions/v1');
 const admin = require('firebase-admin');
 const crypto = require('crypto');
+const { checkIsSuperAdmin } = require('../../helpers/security');
 const { isAdminIP } = require('./adminIP');
 const { getClientIpInfo, isPrivateOrLocalIp } = require('./ip');
 const {
@@ -317,9 +318,7 @@ exports.syncSessionBeacon = functions.https.onRequest(async (req, res) => {
 });
 
 exports.deleteSession = functions.https.onCall(async (data, context) => {
-    if (!context.auth || !context.auth.token.admin && context.auth.token.email !== require('../../helpers/security').SUPER_ADMIN_EMAIL) {
-        throw new functions.https.HttpsError('permission-denied', 'Admin only');
-    }
+    checkIsSuperAdmin(context);
     const { sessionId } = data;
     if (!sessionId) throw new functions.https.HttpsError('invalid-argument', 'Missing sessionId');
     await db.collection('analytics_sessions').doc(sessionId).delete();
@@ -327,9 +326,7 @@ exports.deleteSession = functions.https.onCall(async (data, context) => {
 });
 
 exports.clearAllSessions = functions.https.onCall(async (data, context) => {
-    if (!context.auth || !context.auth.token.admin && context.auth.token.email !== require('../../helpers/security').SUPER_ADMIN_EMAIL) {
-        throw new functions.https.HttpsError('permission-denied', 'Admin only');
-    }
+    checkIsSuperAdmin(context);
     try {
         const sessionsRef = db.collection('analytics_sessions');
         let totalDeleted = 0;
@@ -354,9 +351,7 @@ exports.clearAllSessions = functions.https.onCall(async (data, context) => {
 });
 
 exports.clearAllAffiliateClicks = functions.https.onCall(async (data, context) => {
-    if (!context.auth || !context.auth.token.admin && context.auth.token.email !== require('../../helpers/security').SUPER_ADMIN_EMAIL) {
-        throw new functions.https.HttpsError('permission-denied', 'Admin only');
-    }
+    checkIsSuperAdmin(context);
     try {
         const ref = db.collection('affiliate_clicks');
         let totalDeleted = 0;

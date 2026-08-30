@@ -9,7 +9,7 @@ const admin = require('firebase-admin');
 const nodemailer = require('nodemailer');
 const { GMAIL_EMAIL, GMAIL_PASSWORD } = require('../../helpers/secrets');
 const { getSiteUrl } = require('../../helpers/config');
-const { generateInvoiceBuffer } = require('../utils/generateInvoicePDF');
+const { generateInvoiceBuffer, getOrderReference } = require('../utils/generateInvoicePDF');
 
 const GOOGLE_REVIEW_URL = 'https://g.page/r/CepCisGcSHS2EAE/review';
 
@@ -73,7 +73,12 @@ function getClientEmail(order) {
 }
 
 function getShippingAddress(shipping = {}) {
-    const line = [shipping.address, shipping.zip || shipping.postalCode, shipping.city]
+    const line = [
+        shipping.address,
+        shipping.addressComplement,
+        [shipping.zip || shipping.postalCode, shipping.city].filter(Boolean).join(' '),
+        shipping.country
+    ]
         .filter(Boolean)
         .join(', ');
     return line || 'Non spécifiée';
@@ -165,13 +170,17 @@ function renderOrderSummaryCard(order) {
 
 function renderShippingCard(order) {
     const shipping = order.shipping || {};
+    const billing = shipping.billing || shipping;
     return `
         <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin-top:18px; background:#ffffff; border:1px solid #ebe5dc; border-radius:22px; padding:16px 18px;">
+            ${shipping.clientType === 'entreprise' ? renderDetailRow('Entreprise', shipping.companyName) : ''}
+            ${shipping.clientType === 'entreprise' ? renderDetailRow('SIRET', shipping.siret) : ''}
+            ${shipping.clientType === 'entreprise' && shipping.tva ? renderDetailRow('TVA', shipping.tva) : ''}
             ${renderDetailRow('Nom', shipping.fullName)}
             ${renderDetailRow('Email', shipping.email || order.userEmail)}
             ${renderDetailRow('Téléphone', shipping.phone)}
-            ${renderDetailRow('Adresse', getShippingAddress(shipping))}
-            ${renderDetailRow('Pays', shipping.country || 'France')}
+            ${renderDetailRow('Livraison', getShippingAddress(shipping))}
+            ${renderDetailRow('Facturation', `${billing.name ? `${billing.name} — ` : ''}${getShippingAddress(billing)}`)}
         </table>
     `;
 }
@@ -212,6 +221,8 @@ async function sendNewOrderEmails(orderId, order) {
             <hr/>
             <h3>Livraison</h3>
             <p>${escapeHtml(getShippingAddress(shipping))}</p>
+            <h3>Facturation</h3>
+            <p>${escapeHtml(`${shipping.billing?.name ? `${shipping.billing.name} — ` : ''}${getShippingAddress(shipping.billing || shipping)}`)}</p>
             <p><a href="${siteUrl}/admin">Aller au Dashboard</a></p>
         `
     };
@@ -219,7 +230,7 @@ async function sendNewOrderEmails(orderId, order) {
     let invoiceAttachment = null;
     try {
         const pdfBuffer = generateInvoiceBuffer(order);
-        const formatId = (order.id || orderId || '').slice(0, 8).toUpperCase() || 'N-A';
+        const formatId = getOrderReference(order.id || orderId);
         invoiceAttachment = {
             filename: `Facture_${formatId}.pdf`,
             content: pdfBuffer,

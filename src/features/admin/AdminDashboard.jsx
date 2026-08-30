@@ -182,7 +182,7 @@ const StatusArc = ({ counts, darkMode }) => {
 
 // ─── ADMIN DASHBOARD ───
 
-const AdminDashboard = ({ user, darkMode = false, items = [], boardItems = [] }) => {
+const AdminDashboard = ({ user, canUseDangerousAdminActions = false, darkMode = false, items = [], boardItems = [] }) => {
     const [stats, setStats] = useState({
         totalRevenue: 0,
         totalOrders: 0,
@@ -656,7 +656,7 @@ const AdminDashboard = ({ user, darkMode = false, items = [], boardItems = [] })
             <hr className={`my-4 border-t ${darkMode ? 'border-white/5' : 'border-stone-200'}`} />
 
             {/* MODULE 5: ADMIN CONTROLS (Dashed Red Zone style) */}
-            {user?.email === 'matthis.fradin2@gmail.com' && (
+            {canUseDangerousAdminActions && (
                 <div className="flex flex-col lg:flex-row gap-6">
                     {/* Diagnostic */}
                     <div className={`p-6 rounded-[24px] border border-solid w-full lg:w-1/3 flex flex-col justify-center ${darkMode ? 'bg-[#161616] border-white/5' : 'bg-white border-stone-200 shadow-sm'}`}>
@@ -698,7 +698,7 @@ const AdminDashboard = ({ user, darkMode = false, items = [], boardItems = [] })
             )}
 
             {/* MODALS UNCHANGED VISUALLY FOR NOW (can be adapted easily to completely dark if wanted) */}
-            {isOrderResetModalOpen && (
+            {canUseDangerousAdminActions && isOrderResetModalOpen && (
                 <div className={`fixed inset-0 z-50 flex items-center justify-center p-4 backdrop-blur-md ${darkMode ? 'bg-black/80' : 'bg-stone-900/50'}`}>
                     <div className={`rounded-[32px] p-8 max-w-sm w-full shadow-2xl border text-center space-y-4 ${darkMode ? 'bg-[#161616] border-white/10' : 'bg-white border-stone-100'}`}>
                         <h3 className={`text-lg font-black ${darkMode ? 'text-white' : 'text-stone-900'}`}>Purger Commandes ?</h3>
@@ -711,7 +711,7 @@ const AdminDashboard = ({ user, darkMode = false, items = [], boardItems = [] })
                 </div>
             )}
             {/* Same for other modals... */}
-            {isCleaningModalOpen && (
+            {canUseDangerousAdminActions && isCleaningModalOpen && (
                 <div className={`fixed inset-0 z-50 flex items-center justify-center p-4 backdrop-blur-md ${darkMode ? 'bg-black/80' : 'bg-stone-900/50'}`}>
                     <div className={`rounded-[32px] p-8 max-w-sm w-full shadow-2xl border text-center space-y-4 ${darkMode ? 'bg-[#161616] border-white/10' : 'bg-white border-stone-100'}`}>
                         <h3 className={`text-lg font-black ${darkMode ? 'text-white' : 'text-stone-900'}`}>Nettoyage Système ?</h3>
@@ -723,7 +723,7 @@ const AdminDashboard = ({ user, darkMode = false, items = [], boardItems = [] })
                     </div>
                 </div>
             )}
-            {isResetUsersModalOpen && (
+            {canUseDangerousAdminActions && isResetUsersModalOpen && (
                 <div className={`fixed inset-0 z-50 flex items-center justify-center p-4 backdrop-blur-md ${darkMode ? 'bg-black/80' : 'bg-stone-900/50'}`}>
                     <div className={`rounded-[32px] p-8 max-w-sm w-full shadow-2xl border text-center space-y-4 ${darkMode ? 'bg-[#161616] border-red-500/30' : 'bg-white border-stone-100'}`}>
                         <h3 className={`text-lg font-black text-red-500`}>Purge Totale ?</h3>
@@ -737,7 +737,7 @@ const AdminDashboard = ({ user, darkMode = false, items = [], boardItems = [] })
                     </div>
                 </div>
             )}
-            {isPurgeAnonymousModalOpen && (
+            {canUseDangerousAdminActions && isPurgeAnonymousModalOpen && (
                 <div className={`fixed inset-0 z-50 flex items-center justify-center p-4 backdrop-blur-md ${darkMode ? 'bg-black/80' : 'bg-stone-900/50'}`}>
                     <div className={`rounded-[32px] p-8 max-w-sm w-full shadow-2xl border text-center space-y-4 ${darkMode ? 'bg-[#161616] border-amber-500/30' : 'bg-white border-stone-100'}`}>
                         <h3 className={`text-lg font-black text-amber-500`}>Purge Anonymes ?</h3>

@@ -31,7 +31,12 @@ runStep('Prod env', npmBin, ['run', 'verify:prod-env']);
 runStep('Prod furniture category mapping', npmBin, ['run', 'verify:prod-furniture']);
 runStep('SEO roadmap verification', npmBin, ['run', 'verify:seo-roadmap']);
 runStep('Analytics reliability verification', npmBin, ['run', 'verify:analytics-reliability']);
+runStep('Cart ownership and quantity verification', npmBin, ['run', 'verify:cart-boundary']);
+runStep('Dangerous admin and stock restore verification', npmBin, ['run', 'verify:dangerous-admin']);
+runStep('Email OTP security verification', npmBin, ['run', 'verify:email-otp']);
 runStep('Functions syntax', npmBin, ['run', 'verify:functions-syntax']);
+runStep('Frontend production dependency audit', npmBin, ['audit', '--omit=dev']);
+runStep('Functions production dependency audit', npmBin, ['--prefix', 'functions', 'audit', '--omit=dev']);
 runStep('Prod frontend build', npmBin, ['run', 'build:prod']);
 runStep('Prod bundle verification', npmBin, ['run', 'verify:prod-bundle']);
 

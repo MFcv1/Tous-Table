@@ -90,6 +90,7 @@ const AppRouter = ({
 }) => {
     const { user, isAdmin, logout } = useAuth();
     const [isMoreMenuOpen, setIsMoreMenuOpen] = React.useState(false);
+    const canUseDangerousAdminActions = user?.email?.trim().toLowerCase() === 'matthis.fradin2@gmail.com';
 
     React.useLayoutEffect(() => {
         if (view === 'detail' || view === 'shop-detail') {
@@ -107,11 +108,11 @@ const AppRouter = ({
         { id: 'home_seo', label: 'HomeSEO', icon: Home },
         { id: 'orders', label: 'Commandes', icon: Package },
         { id: 'shop', label: 'Boutique', icon: ShoppingBag },
-        { id: 'users', label: 'Admin', icon: Users },
+        { id: 'users', label: 'Admin', icon: Users, developerOnly: true },
         { id: 'ip_manager', label: 'Session Exclu', icon: Globe },
         { id: 'seo', label: 'SEO', icon: Share2 },
         { id: 'payment_settings', label: 'Paiement', icon: CreditCard },
-    ];
+    ].filter(tab => !tab.developerOnly || canUseDangerousAdminActions);
 
     const handleToggleStatus = async (item, col) => {
         try { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', col, item.id), { status: item.status === 'published' ? 'draft' : 'published' }); } catch (e) { console.error(e); }
@@ -260,7 +261,8 @@ const AppRouter = ({
                 <Suspense fallback={<div className="min-h-screen bg-transparent"></div>}>
                     <div className="contents">
                         <ProductDetail
-                            item={[...items, ...boardItems].find(i => i.id === selectedItemId)}
+                            item={(persistentGalleryState?.activeCollection === 'cutting_boards' ? boardItems : items)
+                                .find(i => i.id === selectedItemId)}
                             itemId={selectedItemId}
                             isCatalogResolving={!isProductCatalogResolved}
                             user={user}
@@ -486,28 +488,28 @@ const AppRouter = ({
 
                     <Suspense fallback={<div className="flex items-center justify-center p-20"><div className="w-10 h-10 border-4 border-stone-200 border-t-stone-800 rounded-full animate-spin"></div></div>}>
                         {adminCollection === 'dashboard' ? (
-                            <AdminDashboard user={user} darkMode={darkMode} items={items} boardItems={boardItems} />
+                            <AdminDashboard user={user} canUseDangerousAdminActions={canUseDangerousAdminActions} darkMode={darkMode} items={items} boardItems={boardItems} />
                         ) : adminCollection === 'homepage' ? (
                             <AdminHomepage darkMode={darkMode} />
                         ) : adminCollection === 'home_seo' ? (
                             <AdminHomeSEO darkMode={darkMode} items={items} affiliateProducts={affiliateProducts} />
                         ) : adminCollection === 'orders' ? (
-                            <AdminOrders darkMode={darkMode} />
+                            <AdminOrders darkMode={darkMode} canUseDangerousAdminActions={canUseDangerousAdminActions} />
 
                         ) : adminCollection === 'studio' ? (
                             <AdminStudio darkMode={darkMode} />
                         ) : adminCollection === 'users' ? (
-                            <AdminUsers darkMode={darkMode} />
+                            canUseDangerousAdminActions ? <AdminUsers darkMode={darkMode} /> : <AdminDashboard user={user} canUseDangerousAdminActions={false} darkMode={darkMode} items={items} boardItems={boardItems} />
                         ) : adminCollection === 'ip_manager' ? (
                             <AdminIPManager darkMode={darkMode} />
                         ) : adminCollection === 'seo' ? (
                             <AdminSEO darkMode={darkMode} />
                         ) : adminCollection === 'analytics' ? (
-                            <AdminAnalytics darkMode={darkMode} />
+                            <AdminAnalytics darkMode={darkMode} canUseDangerousAdminActions={canUseDangerousAdminActions} />
                         ) : adminCollection === 'payment_settings' ? (
                             <AdminPaymentSettings darkMode={darkMode} />
                         ) : adminCollection === 'shop' ? (
-                            <AdminShop darkMode={darkMode} />
+                            <AdminShop darkMode={darkMode} canUseDangerousAdminActions={canUseDangerousAdminActions} />
                         ) : (
                             <>
                                 <AdminForm

@@ -400,3 +400,37 @@ Décision coûts (alignée AGENTS.md):
 - **Analytics** : non modifié (`AnalyticsProvider` / `AdminAnalytics` hors scope).
 
 Impact attendu vs full live public: lectures Firestore limitées aux visiteurs réellement sur galerie/fiche, unsub hors de ces vues.
+
+## Observabilité checkout 2026-08-29 — diagnostic sans PII
+
+`createOrder` écrit désormais un événement structuré `checkout_order_event` pour chaque tentative utile du parcours actif : rejet avant commande, échec transactionnel ou commande virement créée.
+
+Champs volontairement limités :
+
+- `attemptId` généré dans le navigateur pour corréler une tentative ;
+- empreinte SHA-256 tronquée du UID Firebase, jamais le UID brut ;
+- méthode de paiement et nombre de lignes panier ;
+- résultat et motif normalisé (`email_unverified`, `invalid_shipping`, `invalid_items`, code stock, erreur interne, etc.) ;
+- `orderId` seulement après création.
+
+Ne sont jamais journalisés dans ces événements : e-mail, téléphone, adresse, raison sociale, SIRET, TVA, contenu de `shipping` ou token Firebase. Le client ne met plus les coordonnées complètes dans la console après commande.
+
+Objectif : lors d'un futur incident, retrouver précisément si la tentative a été bloquée par l'e-mail non vérifié, le formulaire, le stock ou une erreur interne, sans exposer les données de facturation dans Cloud Logging. Stripe est désactivé et hors du parcours client analysé.
+
+## Sécurité analytics 2026-08-29 — purge développeur uniquement
+
+- `deleteSession`, `clearAllSessions` et `clearAllAffiliateClicks` exigent désormais
+  `checkIsSuperAdmin`; un custom claim `admin` seul ne suffit plus.
+- Les corbeilles de sessions et les boutons `Purger Data` restent visibles uniquement
+  pour `matthis.fradin2@gmail.com`.
+- Le reset des clics depuis `AdminShop` n'efface plus directement Firestore : il passe
+  par la callable protégée `clearAllAffiliateClicks`.
+- Les administrateurs secondaires conservent la lecture, les filtres et le bouton
+  `Actualiser`.
+- Les règles Firestore refusent toute suppression directe de `affiliate_clicks`.
+
+Tests locaux : `node --test functions/helpers/security.test.js`,
+`node scripts/verify-dangerous-admin-boundary.mjs`,
+`npm run verify:analytics-reliability` et `npm run build` réussis.
+
+État : non déployé au 2026-08-29.

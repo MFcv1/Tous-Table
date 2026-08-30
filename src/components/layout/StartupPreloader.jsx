@@ -64,6 +64,7 @@ const StartupPreloader = ({
     let introTimeline = null;
     let exitTimeline = null;
     let resolveIntro = null;
+    let failSafeTimer = null;
     const root = rootRef.current;
 
     if (!root) return undefined;
@@ -112,9 +113,16 @@ const StartupPreloader = ({
     const finish = () => {
       if (completeRef.current) return;
       completeRef.current = true;
+      if (failSafeTimer) clearTimeout(failSafeTimer);
+      root.style.pointerEvents = 'none';
+      root.style.opacity = '0';
       document.body.classList.remove('tat-startup-preloading');
       onCompleteRef.current?.();
     };
+
+    // requestAnimationFrame/GSAP can be heavily throttled in a background tab.
+    // The preloader must never remain a permanent interaction barrier.
+    failSafeTimer = setTimeout(finish, Math.max(4500, maxDuration + 1500));
 
     gsap.set(content, { opacity: 0 });
     gsap.set(icon, { scale: 0.8, opacity: 0, filter: initialIconBlur, force3D: true });
@@ -212,6 +220,7 @@ const StartupPreloader = ({
       introTimeline?.kill();
       exitTimeline?.kill();
       resolveIntro?.();
+      if (failSafeTimer) clearTimeout(failSafeTimer);
       document.body.classList.remove('tat-startup-preloading');
     };
   }, [warmup, minDuration, maxDuration, mobileTitleMaskMotion, leanMobileMotion]);

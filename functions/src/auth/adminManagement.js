@@ -9,7 +9,7 @@ const db = admin.firestore();
 
 // --- AJOUTER UN ADMIN ---
 exports.addAdminUser = functions.https.onCall(async (data, context) => {
-    checkIsAdmin(context);
+    checkIsSuperAdmin(context);
     const { email, name } = data;
     if (!email) throw new functions.https.HttpsError('invalid-argument', 'Email requis.');
 
@@ -56,7 +56,7 @@ exports.addAdminUser = functions.https.onCall(async (data, context) => {
 
 // --- RÉVOQUER UN ADMIN ---
 exports.removeAdminUser = functions.https.onCall(async (data, context) => {
-    checkIsAdmin(context);
+    checkIsSuperAdmin(context);
     const { uid, email } = data;
 
     if (email === SUPER_ADMIN_EMAIL) {

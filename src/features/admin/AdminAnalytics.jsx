@@ -684,7 +684,8 @@ const VisitorSessionGroup = ({
     expandedSessionId,
     setExpandedSessionId,
     handleDeleteSession,
-    formatDuration
+    formatDuration,
+    canUseDangerousAdminActions = false
 }) => {
     const lastTime = visitor.lastActivityAt
         ? new Date(visitor.lastActivityAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
@@ -771,13 +772,13 @@ const VisitorSessionGroup = ({
                                         >
                                             {isExpanded ? 'Masquer' : 'Tracer'}
                                         </button>
-                                        <button
+                                        {canUseDangerousAdminActions && <button
                                             onClick={() => handleDeleteSession(session.id)}
                                             className="p-1.5 text-stone-500 hover:text-red-500 transition-colors active:scale-90"
                                             aria-label="Supprimer la session"
                                         >
                                             <Trash2 size={12} />
-                                        </button>
+                                        </button>}
                                     </div>
                                 </div>
 
@@ -832,7 +833,7 @@ const estimateComptoirDuration = (session) => {
     return { total, segments };
 };
 
-const BoutiqueAnalytics = ({ darkMode, sessions = [], onRefreshSessions, sessionsRefreshKey = 0, loadingSessions = false }) => {
+const BoutiqueAnalytics = ({ darkMode, sessions = [], onRefreshSessions, sessionsRefreshKey = 0, loadingSessions = false, canUseDangerousAdminActions = false }) => {
     const [clicks, setClicks] = useState(() => cachedAffiliateClicks || []);
     const [loadingClicks, setLoadingClicks] = useState(false);
     const [restoringClicks, setRestoringClicks] = useState(() => !cachedAffiliateClicks);
@@ -1225,12 +1226,12 @@ const BoutiqueAnalytics = ({ darkMode, sessions = [], onRefreshSessions, session
                             Maj {new Date(clicksRefreshKey).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
                         </span>
                     )}
-                    <button
+                    {canUseDangerousAdminActions && <button
                         onClick={handleClearAllAffiliate}
                         className="px-4 py-2 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all border border-red-500/20 text-red-500/60 hover:bg-red-500 hover:text-white active:scale-95"
                     >
                         Purger Data
-                    </button>
+                    </button>}
                     <div className={`flex flex-wrap p-1 rounded-xl border ${darkMode ? 'bg-stone-900 border-white/5' : 'bg-stone-100 border-stone-200'}`}>
                         {BOUTIQUE_TIME_FILTERS.map(tf => (
                             <button key={tf.id} onClick={() => setTimeFilter(tf.id)}
@@ -1650,7 +1651,7 @@ const BoutiqueAnalytics = ({ darkMode, sessions = [], onRefreshSessions, session
 };
 
 // ─── Analytics Principal ───────────────────────────────────────────────────────
-const AdminAnalytics = ({ darkMode = false }) => {
+const AdminAnalytics = ({ darkMode = false, canUseDangerousAdminActions = false }) => {
     const [sessions, setSessions] = useState(() => cachedAnalyticsSessions || []);
     const [loading, setLoading] = useState(false);
     const [restoringSessions, setRestoringSessions] = useState(() => !cachedAnalyticsSessions);
@@ -1866,6 +1867,7 @@ const AdminAnalytics = ({ darkMode = false }) => {
                     onRefreshSessions={loadSessions}
                     sessionsRefreshKey={sessionsRefreshKey}
                     loadingSessions={loading}
+                    canUseDangerousAdminActions={canUseDangerousAdminActions}
                 />
             ) : (loading || restoringSessions) && sessions.length === 0 ? (
                 <div className="p-12 text-center text-stone-400 font-bold animate-pulse">Chargement Data...</div>
@@ -1892,12 +1894,12 @@ const AdminAnalytics = ({ darkMode = false }) => {
                             Maj {new Date(sessionsRefreshKey).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
                         </span>
                     )}
-                    <button
+                    {canUseDangerousAdminActions && <button
                         onClick={handleClearAll}
                         className={`px-4 py-2 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all border border-red-500/20 text-red-500/60 hover:bg-red-500 hover:text-white active:scale-95`}
                     >
                         Purger Data
-                    </button>
+                    </button>}
                     <div className={`flex p-1 rounded-xl border ${darkMode ? 'bg-stone-900 border-white/5' : 'bg-stone-100 border-stone-200'}`}>
                         {ANALYTICS_TIME_FILTERS.map(tf => (
                             <button
@@ -2048,6 +2050,7 @@ const AdminAnalytics = ({ darkMode = false }) => {
                                                         setExpandedSessionId={setExpandedSessionId}
                                                         handleDeleteSession={handleDeleteSession}
                                                         formatDuration={formatDuration}
+                                                        canUseDangerousAdminActions={canUseDangerousAdminActions}
                                                     />
                                                 );
                                             })}

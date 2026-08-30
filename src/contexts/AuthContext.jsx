@@ -5,13 +5,12 @@ import {
     signInWithPopup,
     signInWithRedirect,
     getRedirectResult,
-    signInWithEmailAndPassword,
-    createUserWithEmailAndPassword,
+    signInWithCustomToken,
     signOut,
-    sendEmailVerification
 } from 'firebase/auth';
 import { doc, onSnapshot } from 'firebase/firestore';
-import { auth, googleProvider, db } from '../firebase/config';
+import { getToken as getAppCheckToken } from 'firebase/app-check';
+import { auth, googleProvider, db, appCheck } from '../firebase/config';
 import { httpsCallable } from 'firebase/functions';
 import { functions } from '../firebase/config';
 
@@ -31,6 +30,41 @@ const isRedirectPending = () => sessionStorage.getItem(REDIRECT_KEY) === 'true';
 
 // Create the context
 const AuthContext = createContext();
+
+const callProtectedOtpFunction = async (functionName, data) => {
+    if (!appCheck) {
+        throw new Error('La protection anti-abus est indisponible. Rechargez la page.');
+    }
+
+    const { token: appCheckToken } = await getAppCheckToken(appCheck, false);
+    if (!appCheckToken) {
+        throw new Error('La vérification anti-abus a échoué. Rechargez la page.');
+    }
+
+    const headers = {
+        'Content-Type': 'application/json',
+        'X-Firebase-AppCheck': appCheckToken,
+    };
+    const authToken = await auth.currentUser?.getIdToken();
+    if (authToken) headers.Authorization = `Bearer ${authToken}`;
+
+    const projectId = import.meta.env.VITE_FIREBASE_PROJECT_ID;
+    const response = await fetch(
+        `https://us-central1-${projectId}.cloudfunctions.net/${functionName}`,
+        {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({ data }),
+        }
+    );
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || payload.error) {
+        const error = new Error(payload.error?.message || 'Le service de connexion est indisponible.');
+        error.code = payload.error?.status || `http-${response.status}`;
+        throw error;
+    }
+    return payload.result ?? payload.data;
+};
 
 // Hook to use the context
 export const useAuth = () => {
@@ -138,23 +172,21 @@ export const AuthProvider = ({ children }) => {
         return result;
     };
 
-    const loginWithEmail = (email, password) => {
-        return signInWithEmailAndPassword(auth, email, password);
+    const requestEmailCode = async (email) => {
+        return callProtectedOtpFunction('requestEmailOtp', { email });
     };
 
-    const signupWithEmail = (email, password) => {
-        return createUserWithEmailAndPassword(auth, email, password);
+    const loginWithEmailCode = async (email, code) => {
+        const response = await callProtectedOtpFunction('verifyEmailOtp', { email, code });
+        if (!response?.token) throw new Error('Jeton de connexion manquant.');
+        const result = await signInWithCustomToken(auth, response.token);
+        httpsCallable(functions, 'updateUserSessions')()
+            .catch(err => console.error('Failed to clean sessions after OTP login:', err));
+        return result;
     };
 
     const logout = () => {
         return signOut(auth);
-    };
-
-    const verifyEmail = (user) => {
-        return sendEmailVerification(user, {
-            url: window.location.origin + '/',
-            handleCodeInApp: true
-        });
     };
 
     const value = {
@@ -162,10 +194,9 @@ export const AuthProvider = ({ children }) => {
         isAdmin,
         loading,
         loginWithGoogle,
-        loginWithEmail,
-        signupWithEmail,
+        requestEmailCode,
+        loginWithEmailCode,
         logout,
-        verifyEmail
     };
 
     return (

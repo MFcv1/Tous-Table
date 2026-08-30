@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import {
-  onSnapshot, collection, doc, deleteDoc, serverTimestamp, addDoc, query, getDocs, getDoc, writeBatch
+  onSnapshot, collection, doc, deleteDoc, serverTimestamp, query, getDocs, getDoc, writeBatch, runTransaction
 } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions'; // Added for logUserConnection
 // Auth imports removed (handled in Context)
@@ -12,8 +12,23 @@ import {
 import { motion, AnimatePresence } from 'framer-motion';
 
 // --- IMPORTS CONFIG & UTILS ---
-import { db, appId, functions, googleProvider } from './firebase/config';
+import { db, appId, functions } from './firebase/config';
 import { getMillis } from './utils/time';
+import {
+  addCartQuantities,
+  claimGuestCartsForUser,
+  clearGuestCart,
+  finalizeGuestCartMigration,
+  getCartDocumentId,
+  getCartItemCount,
+  getCartProductKey,
+  getCartTotal,
+  loadGuestCart,
+  MAX_CART_QUANTITY,
+  mergeCartLinesByProduct,
+  normalizeCartQuantity,
+  saveGuestCart,
+} from './utils/cartState';
 import { lockPageScroll, scrollToTarget, scrollToTop } from './utils/smoothScroll';
 import { useLiveTheme } from './hooks/useLiveTheme'; // Import hook for forcedMode check
 import {
@@ -126,7 +141,7 @@ const AppContent = () => {
   const toast = useToast();
 
   // Use Auth Context
-  const { user, isAdmin, loading: authLoading, loginWithGoogle, loginWithEmail, signupWithEmail, logout, verifyEmail } = useAuth();
+  const { user, isAdmin, loading: authLoading, logout } = useAuth();
 
   const [items, setItems] = useState([]);
   const [boardItems, setBoardItems] = useState([]); // New: Planches
@@ -214,9 +229,12 @@ const AppContent = () => {
   }, []);
 
   // Cart State
-  const [cartItems, setCartItems] = useState(() => {
-    try { return JSON.parse(localStorage.getItem('tat_local_cart')) || []; } catch(e) { return []; }
-  });
+  const [cartStateItems, setCartItems] = useState(() => loadGuestCart());
+  const [cartOwnerKey, setCartOwnerKey] = useState('guest');
+  const currentCartOwnerKey = user && !user.isAnonymous ? `user:${user.uid}` : 'guest';
+  const currentCartOwnerKeyRef = useRef(currentCartOwnerKey);
+  currentCartOwnerKeyRef.current = currentCartOwnerKey;
+  const cartItems = cartOwnerKey === currentCartOwnerKey ? cartStateItems : [];
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [cartInteracted, setCartInteracted] = useState(false); // Prevents initial flash
   const [showOrderSuccess, setShowOrderSuccess] = useState(false);
@@ -238,10 +256,6 @@ const AppContent = () => {
   const [showFullLogin, setShowFullLogin] = useState(false);
   const [editingItem, setEditingItem] = useState(null);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
-  const [showPassword, setShowPassword] = useState(false);
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
-  const [showAuthSuccess, setShowAuthSuccess] = useState(false);
-  const [pendingCheckout, setPendingCheckout] = useState(false);
   const [showStartupPreloader, setShowStartupPreloader] = useState(() => shouldShowStartupPreloader(initialRouteRef.current));
   const [isFooterVisible, setIsFooterVisible] = useState(false);
   const [publicRealtimeReady, setPublicRealtimeReady] = useState(() => (
@@ -333,9 +347,9 @@ const AppContent = () => {
       return persistentGalleryState.activeCollection === 'cutting_boards' ? 'cutting_boards' : 'furniture';
     }
     if (view === 'detail') {
-      if (boardItems.some((item) => item.id === selectedItemId)) return 'cutting_boards|affiliate_products';
-      if (items.some((item) => item.id === selectedItemId)) return 'furniture|affiliate_products';
-      return 'furniture|cutting_boards|affiliate_products';
+      return persistentGalleryState.activeCollection === 'cutting_boards'
+        ? 'cutting_boards|affiliate_products'
+        : 'furniture|affiliate_products';
     }
     return '';
   }, [view, persistentGalleryState.activeCollection, selectedItemId, items, boardItems]);
@@ -346,19 +360,23 @@ const AppContent = () => {
    * Vide hors gallery|detail.
    */
   const publicLiveStockKey = React.useMemo(() => {
+    if (view === 'detail' && pendingDeepLink) {
+      // A public product URL does not encode its Firestore collection. Resolve both
+      // live catalogues once, then keep only the collection selected below.
+      return 'furniture|cutting_boards';
+    }
     if (view === 'gallery') {
       return persistentGalleryState.activeCollection === 'cutting_boards'
         ? 'cutting_boards'
         : 'furniture';
     }
     if (view === 'detail') {
-      if (boardItems.some((item) => item.id === selectedItemId)) return 'cutting_boards';
-      if (items.some((item) => item.id === selectedItemId)) return 'furniture';
-      // Produit pas encore résolu : les deux stock (temporaire).
-      return 'furniture|cutting_boards';
+      return persistentGalleryState.activeCollection === 'cutting_boards'
+        ? 'cutting_boards'
+        : 'furniture';
     }
     return '';
-  }, [view, persistentGalleryState.activeCollection, selectedItemId, items, boardItems]);
+  }, [view, pendingDeepLink, persistentGalleryState.activeCollection, selectedItemId, items, boardItems]);
 
   // --- SCROLL HEADER LOGIC ---
   const [isHeaderVisible, setIsHeaderVisible] = useState(true);
@@ -889,8 +907,8 @@ const AppContent = () => {
   useEffect(() => {
     if (typeof window === 'undefined') return;
 
-    const allItems = [...items, ...boardItems];
-    const selectedItem = allItems.find((item) => item.id === selectedItemId);
+    const contextualItems = persistentGalleryState.activeCollection === 'cutting_boards' ? boardItems : items;
+    const selectedItem = contextualItems.find((item) => item.id === selectedItemId);
     const selectedAffiliateProduct = affiliateProducts.find((product) => product.id === selectedAffiliateProductId);
 
     if (view === 'detail' && selectedItemId) {
@@ -926,125 +944,315 @@ const AppContent = () => {
 
   // --- TRAITEMENT DEEP LINK ---
   useEffect(() => {
-    if (pendingDeepLink && (items.length > 0 || boardItems.length > 0)) {
-      const allItems = [...items, ...boardItems];
-      const targetItem = allItems.find(i => i.id === pendingDeepLink);
+    if (!pendingDeepLink) return;
 
-      if (targetItem) {
-        console.log("Deep link activated for:", targetItem.name);
-        setSelectedItemId(pendingDeepLink);
-        setView('detail');
-        setPendingDeepLink(null); // Lien consommé
-      }
+    const furnitureMatch = items.find((item) => item.id === pendingDeepLink);
+    const boardMatch = boardItems.find((item) => item.id === pendingDeepLink);
+    const currentPath = typeof window !== 'undefined' ? window.location.pathname : '';
+    const routeMatch = [furnitureMatch, boardMatch]
+      .filter(Boolean)
+      .find((item) => getProductPath(item) === currentPath);
+    const targetItem = routeMatch
+      || (persistentGalleryState.activeCollection === 'cutting_boards' ? boardMatch : furnitureMatch)
+      || furnitureMatch
+      || boardMatch;
+
+    if (targetItem) {
+      const activeCollection = targetItem.collectionName === 'cutting_boards'
+        ? 'cutting_boards'
+        : 'furniture';
+      console.log("Deep link activated for:", targetItem.name);
+      setPersistentGalleryState((previous) => ({ ...previous, activeCollection }));
+      setSelectedItemId(pendingDeepLink);
+      setView('detail');
+      setPendingDeepLink(null);
+      return;
     }
-  }, [items, boardItems, pendingDeepLink]);
+
+    if (
+      liveCollectionsRef.current.has('furniture')
+      && liveCollectionsRef.current.has('cutting_boards')
+    ) {
+      // Both catalogues have answered: the not-found state is now definitive.
+      setSelectedItemId(pendingDeepLink);
+      setView('detail');
+      setPendingDeepLink(null);
+    }
+  }, [
+    items,
+    boardItems,
+    pendingDeepLink,
+    persistentGalleryState.activeCollection,
+    resolvedPublicCollections.furniture,
+    resolvedPublicCollections.cutting_boards,
+  ]);
 
   // --- CART SYNC AND MIGRATION ---
   useEffect(() => {
     if (user && !user.isAnonymous) {
+      const ownerKey = `user:${user.uid}`;
       const cartRef = collection(db, 'users', user.uid, 'cart');
-      const localCart = JSON.parse(localStorage.getItem('tat_local_cart')) || [];
+      let guestMigrations = [];
+      let guestCart = [];
+      let guestClaimsReady = false;
+      let cancelled = false;
+      let migrationInFlight = false;
+      let retryTimer = null;
+      let retryAttempt = 0;
+
+      // The previous UID's lines must disappear before the first snapshot arrives.
+      setCartItems([]);
+      setCartOwnerKey(ownerKey);
 
       // Setup real-time listener immediately
       console.log("Subscribing to cart for user:", user.uid);
       const unsubCart = onSnapshot(query(cartRef), (snap) => {
+        if (cancelled) return;
         const items = snap.docs.map(d => ({ id: d.id, ...d.data() }));
         setCartItems(items);
+        setCartOwnerKey(ownerKey);
       }, (err) => {
+        if (cancelled) return;
         console.error("Cart sync error:", err);
       });
 
+      const scheduleMigrationRetry = () => {
+        if (cancelled || guestCart.length === 0 || retryTimer) return;
+        const delay = Math.min(30000, 1000 * (2 ** retryAttempt));
+        retryAttempt += 1;
+        retryTimer = window.setTimeout(() => {
+          retryTimer = null;
+          cleanupAndMigrate();
+        }, delay);
+      };
+
       // Cleanup duplicates and migrate local cart
       const cleanupAndMigrate = async () => {
+        if (cancelled || migrationInFlight || !guestClaimsReady) return;
+        migrationInFlight = true;
         try {
-          const snap = await getDocs(cartRef);
-          const existingOriginalIds = new Set();
-          const batch = writeBatch(db);
-          let batchCount = 0;
-
-          // 1. Find duplicates in existing firestore cart
-          snap.docs.forEach(cartDoc => {
+          const discoveredSnap = await getDocs(cartRef);
+          if (cancelled) return;
+          const guestTransfers = guestMigrations.map(migration => ({
+            ...migration,
+            items: mergeCartLinesByProduct(migration.items),
+          }));
+          const refsByPath = new Map(
+            discoveredSnap.docs.map(cartDoc => [cartDoc.ref.path, cartDoc.ref]),
+          );
+          discoveredSnap.docs.forEach((cartDoc) => {
             const data = cartDoc.data();
-            if (existingOriginalIds.has(data.originalId)) {
-              batch.delete(cartDoc.ref);
-              batchCount++;
-            } else {
-              existingOriginalIds.add(data.originalId);
-            }
+            const deterministicRef = doc(cartRef, getCartDocumentId({
+              ...data,
+              id: data.originalId || data.id || cartDoc.id,
+            }));
+            refsByPath.set(deterministicRef.path, deterministicRef);
+          });
+          guestTransfers.forEach((migration) => {
+            migration.items.forEach((item) => {
+              const deterministicRef = doc(cartRef, getCartDocumentId(item));
+              refsByPath.set(deterministicRef.path, deterministicRef);
+            });
           });
 
-          // 2. Migrate local cart
-          if (localCart.length > 0) {
-            for (const item of localCart) {
-              if (existingOriginalIds.has(item.originalId)) continue; // skip duplicate
+          // Clear the guest key only after Firestore accepted every write.
+          await finalizeGuestCartMigration({
+            hasWrites: true,
+            hasGuestItems: guestCart.length > 0,
+            commit: () => runTransaction(db, async (transaction) => {
+              const refs = [...refsByPath.values()];
+              const currentSnaps = await Promise.all(refs.map(ref => transaction.get(ref)));
+              const groupsByProduct = new Map();
+              const existingByProduct = new Map();
 
-              const { id, addedAt, ...rest } = item;
-              const firestoreItem = { ...rest, addedAt: serverTimestamp() };
-              const newDocRef = doc(cartRef);
-              batch.set(newDocRef, firestoreItem);
-              batchCount++;
-              existingOriginalIds.add(item.originalId);
-            }
-            localStorage.removeItem('tat_local_cart');
-          }
+              // 1. Group every legacy/canonical line before any write.
+              currentSnaps.forEach((cartDoc) => {
+                if (!cartDoc.exists()) return;
+                const data = cartDoc.data();
+                const productKey = getCartProductKey(data, `cart-doc:${cartDoc.id}`);
+                const group = groupsByProduct.get(productKey) || [];
+                group.push({ ref: cartDoc.ref, data });
+                groupsByProduct.set(productKey, group);
+              });
 
-          if (batchCount > 0) {
-            await batch.commit();
-          }
+              // 2. Move every product to its deterministic document ID. This
+              // also removes legacy random IDs and preserves migration markers.
+              groupsByProduct.forEach((group, productKey) => {
+                const representative = group[0].data;
+                const canonicalRef = doc(cartRef, getCartDocumentId(representative));
+                const canonicalEntry = group.find(entry => entry.ref.path === canonicalRef.path);
+                const baseData = canonicalEntry?.data || representative;
+                const migrationIds = new Set();
+                let quantity = 0;
+
+                group.forEach((entry) => {
+                  quantity = normalizeCartQuantity(quantity + normalizeCartQuantity(entry.data.quantity));
+                  if (Array.isArray(entry.data.guestMigrationIds)) {
+                    entry.data.guestMigrationIds
+                      .filter(value => typeof value === 'string')
+                      .forEach(id => migrationIds.add(id));
+                  }
+                });
+
+                existingByProduct.set(productKey, {
+                  ref: canonicalRef,
+                  baseData,
+                  quantity,
+                  migrationIds,
+                  legacyRefs: group
+                    .filter(entry => entry.ref.path !== canonicalRef.path)
+                    .map(entry => entry.ref),
+                });
+              });
+
+              // 3. Add the claimed guest quantities exactly once per transfer ID.
+              guestTransfers.forEach((migration) => {
+                migration.items.forEach((item) => {
+                  const productKey = getCartProductKey(item);
+                  const existing = existingByProduct.get(productKey);
+                  if (existing) {
+                    if (!migration.transferId || !existing.migrationIds.has(migration.transferId)) {
+                      existing.quantity = addCartQuantities(existing.quantity, item.quantity);
+                      if (migration.transferId) existing.migrationIds.add(migration.transferId);
+                    }
+                    return;
+                  }
+
+                  const { id, addedAt, ...rest } = item;
+                  const newDocRef = doc(cartRef, getCartDocumentId(item));
+                  const firestoreItem = {
+                    ...rest,
+                    quantity: normalizeCartQuantity(item.quantity),
+                    addedAt: serverTimestamp(),
+                    ...(migration.transferId ? { guestMigrationIds: [migration.transferId] } : {}),
+                  };
+                  existingByProduct.set(productKey, {
+                    ref: newDocRef,
+                    baseData: firestoreItem,
+                    quantity: firestoreItem.quantity,
+                    migrationIds: new Set(migration.transferId ? [migration.transferId] : []),
+                    legacyRefs: [],
+                  });
+                });
+              });
+
+              // 4. One canonical write per product, after every computation.
+              existingByProduct.forEach((entry) => {
+                transaction.set(entry.ref, {
+                  ...entry.baseData,
+                  quantity: entry.quantity,
+                  guestMigrationIds: [...entry.migrationIds],
+                });
+                entry.legacyRefs.forEach(legacyRef => transaction.delete(legacyRef));
+              });
+            }),
+            clear: async () => {
+              for (const migration of guestMigrations) {
+                await clearGuestCart(undefined, user.uid, migration.transferId);
+              }
+            },
+          });
+          retryAttempt = 0;
         } catch (e) {
-          console.error("Cart sync/migration error:", e);
+          if (!cancelled) {
+            console.error("Cart sync/migration error:", e);
+            scheduleMigrationRetry();
+          }
+        } finally {
+          migrationInFlight = false;
         }
       };
 
-      cleanupAndMigrate();
+      const retryMigrationWhenOnline = () => {
+        if (retryTimer) {
+          window.clearTimeout(retryTimer);
+          retryTimer = null;
+        }
+        cleanupAndMigrate();
+      };
 
-      return () => unsubCart();
+      const claimAndMigrateGuestCart = async () => {
+        try {
+          guestMigrations = await claimGuestCartsForUser(user.uid);
+          guestCart = guestMigrations.flatMap(migration => migration.items);
+        } catch (claimError) {
+          console.error('Guest cart claim unavailable:', claimError);
+        } finally {
+          guestClaimsReady = true;
+          cleanupAndMigrate();
+        }
+      };
+
+      claimAndMigrateGuestCart();
+      window.addEventListener('online', retryMigrationWhenOnline);
+
+      return () => {
+        cancelled = true;
+        if (retryTimer) window.clearTimeout(retryTimer);
+        window.removeEventListener('online', retryMigrationWhenOnline);
+        unsubCart();
+      };
     } else {
-      const localCart = JSON.parse(localStorage.getItem('tat_local_cart')) || [];
-      setCartItems(localCart);
+      setCartItems(loadGuestCart());
+      setCartOwnerKey('guest');
     }
   }, [user]);
-
-
-
-  // --- CART PERSISTENCE (Mirror to Local Storage) ---
-  useEffect(() => {
-    // We only mirror if we have items, OR if we had items and now it's empty.
-    // This allows the user to keep their cart if they log out on the same browser.
-    localStorage.setItem('tat_local_cart', JSON.stringify(cartItems));
-  }, [cartItems]);
-
-  // --- AUTO-REDIRECT TO CHECKOUT AFTER LOGIN ---
-  useEffect(() => {
-    if (user && !user.isAnonymous && pendingCheckout) {
-      setView('checkout');
-      scrollToTop();
-      setPendingCheckout(false);
-    }
-  }, [user, pendingCheckout]);
 
   // --- ACTIONS ---
   // Admin actions moved to Router.jsx
 
-  const handleSocialLogin = async (provider) => {
-    // For now we only support Google via context helper
-    try {
-      await loginWithGoogle();
-      setShowFullLogin(false);
-    } catch (e) { console.error(e); }
+  // --- CART ACTIONS ---
+  const getCartItemMaxQuantity = (cartItem) => {
+    const catalog = (cartItem.collectionName || 'furniture') === 'cutting_boards'
+      ? boardItems
+      : items;
+    const catalogItem = catalog.find(item => item.id === cartItem.originalId);
+    if (!catalogItem) return normalizeCartQuantity(cartItem.quantity);
+    if (catalogItem.sold) return 0;
+    return catalogItem.stock === undefined
+      ? 1
+      : Math.min(MAX_CART_QUANTITY, Math.max(0, Math.floor(Number(catalogItem.stock) || 0)));
   };
 
-  // --- CART ACTIONS ---
   const addToCart = async (item) => {
-    const currentStock = item.stock !== undefined ? Number(item.stock) : 1;
-    const inCartCount = cartItems.filter(c => c.originalId === item.id).length;
+    const currentStock = item.stock !== undefined
+      ? Math.min(MAX_CART_QUANTITY, Math.max(0, Math.floor(Number(item.stock) || 0)))
+      : 1;
+    const itemCollectionName = item.collectionName || 'furniture';
+    const matchingCartItems = cartItems.filter(c => (
+      c.originalId === item.id
+      && (c.collectionName || 'furniture') === itemCollectionName
+    ));
+    const isAnonymous = !user || user.isAnonymous;
+    const existingCartItem = matchingCartItems[0];
 
-    if (inCartCount >= currentStock) {
-      setStockAlert({ currentStock });
-      return false;
+    if (isAnonymous && existingCartItem) {
+      const inCartCount = matchingCartItems.reduce(
+        (sum, cartItem) => sum + normalizeCartQuantity(cartItem.quantity),
+        0,
+      );
+      if (inCartCount >= currentStock) {
+        setStockAlert({ currentStock });
+        return false;
+      }
+      const nextQuantity = normalizeCartQuantity(existingCartItem.quantity) + 1;
+      try {
+        const newCart = cartItems.map(cartItem => (
+          cartItem.id === existingCartItem.id
+            ? { ...cartItem, quantity: nextQuantity }
+            : cartItem
+        ));
+        setCartItems(newCart);
+        await saveGuestCart(newCart);
+        setCartInteracted(true);
+        return true;
+      } catch (e) {
+        console.error("Error updating cart quantity", e);
+        toast("Erreur ajout panier : " + e.message, { type: 'error' });
+        return false;
+      }
     }
 
-    const isAnonymous = !user || user.isAnonymous;
     const cartItemData = {
       id: isAnonymous ? `local_${Date.now()}_${Math.random().toString(36).substr(2, 9)}` : undefined,
       originalId: item.id,
@@ -1060,18 +1268,52 @@ const AppContent = () => {
     if (isAnonymous) {
       const newCart = [...cartItems, cartItemData];
       setCartItems(newCart);
-      localStorage.setItem('tat_local_cart', JSON.stringify(newCart));
+      await saveGuestCart(newCart);
       setCartInteracted(true);
       return true;
     } else {
       try {
         const firestoreItem = { ...cartItemData };
-        delete firestoreItem.id; // Firestore auto-generates the ID and rejects undefined fields
-        
-        await addDoc(collection(db, 'users', user.uid, 'cart'), firestoreItem);
+        delete firestoreItem.id;
+        const cartItemRef = doc(
+          db,
+          'users',
+          user.uid,
+          'cart',
+          getCartDocumentId(cartItemData),
+        );
+        await runTransaction(db, async (transaction) => {
+          const legacyRef = existingCartItem?.id && existingCartItem.id !== cartItemRef.id
+            ? doc(db, 'users', user.uid, 'cart', existingCartItem.id)
+            : null;
+          const [currentSnap, legacySnap] = await Promise.all([
+            transaction.get(cartItemRef),
+            legacyRef ? transaction.get(legacyRef) : Promise.resolve(null),
+          ]);
+          const currentQuantity = (
+            (currentSnap.exists() ? normalizeCartQuantity(currentSnap.data().quantity) : 0)
+            + (legacySnap?.exists() ? normalizeCartQuantity(legacySnap.data().quantity) : 0)
+          );
+          const nextQuantity = currentQuantity + 1;
+          if (nextQuantity > currentStock) {
+            const stockError = new Error('Limite de stock atteinte.');
+            stockError.code = 'cart/stock-limit';
+            throw stockError;
+          }
+          transaction.set(cartItemRef, {
+            ...(legacySnap?.exists() ? legacySnap.data() : {}),
+            ...(currentSnap.exists() ? currentSnap.data() : firestoreItem),
+            quantity: nextQuantity,
+          });
+          if (legacySnap?.exists()) transaction.delete(legacyRef);
+        });
         setCartInteracted(true);
         return true;
       } catch (e) {
+        if (e.code === 'cart/stock-limit') {
+          setStockAlert({ currentStock });
+          return false;
+        }
         console.error("Error add cart", e);
         toast("Erreur ajout panier : " + e.message, { type: 'error' });
         return false;
@@ -1079,11 +1321,90 @@ const AppContent = () => {
     }
   };
 
+  const updateCartQuantity = async (cartDocId, requestedQuantity, requestedDelta = null) => {
+    const cartItem = cartItems.find(item => item.id === cartDocId);
+    if (!cartItem) return false;
+
+    const numericQuantity = Number(requestedQuantity);
+    if (!Number.isFinite(numericQuantity)) return false;
+    if (numericQuantity <= 0) {
+      await removeFromCart(cartDocId);
+      return true;
+    }
+
+    const nextQuantity = normalizeCartQuantity(numericQuantity);
+    const maxQuantity = getCartItemMaxQuantity(cartItem);
+    if (nextQuantity > maxQuantity) {
+      setStockAlert({ currentStock: maxQuantity });
+      return false;
+    }
+
+    try {
+      if (!user || user.isAnonymous) {
+        const newCart = cartItems.map(item => (
+          item.id === cartDocId ? { ...item, quantity: nextQuantity } : item
+        ));
+        setCartItems(newCart);
+        await saveGuestCart(newCart);
+      } else {
+        const canonicalRef = doc(
+          db,
+          'users',
+          user.uid,
+          'cart',
+          getCartDocumentId(cartItem),
+        );
+        await runTransaction(db, async (transaction) => {
+          const legacyRef = cartDocId !== canonicalRef.id
+            ? doc(db, 'users', user.uid, 'cart', cartDocId)
+            : null;
+          const [currentSnap, legacySnap] = await Promise.all([
+            transaction.get(canonicalRef),
+            legacyRef ? transaction.get(legacyRef) : Promise.resolve(null),
+          ]);
+          if (!currentSnap.exists() && !legacySnap?.exists()) return;
+          const currentQuantity = (
+            (currentSnap.exists() ? normalizeCartQuantity(currentSnap.data().quantity) : 0)
+            + (legacySnap?.exists() ? normalizeCartQuantity(legacySnap.data().quantity) : 0)
+          );
+          const transactionQuantity = Number.isInteger(requestedDelta)
+            ? currentQuantity + requestedDelta
+            : nextQuantity;
+          if (transactionQuantity <= 0) {
+            if (currentSnap.exists()) transaction.delete(canonicalRef);
+            if (legacySnap?.exists()) transaction.delete(legacyRef);
+            return;
+          }
+          if (transactionQuantity > maxQuantity) {
+            const stockError = new Error('Limite de stock atteinte.');
+            stockError.code = 'cart/stock-limit';
+            throw stockError;
+          }
+          transaction.set(canonicalRef, {
+            ...(legacySnap?.exists() ? legacySnap.data() : {}),
+            ...(currentSnap.exists() ? currentSnap.data() : {}),
+            quantity: normalizeCartQuantity(transactionQuantity),
+          });
+          if (legacySnap?.exists()) transaction.delete(legacyRef);
+        });
+      }
+      return true;
+    } catch (e) {
+      if (e.code === 'cart/stock-limit') {
+        setStockAlert({ currentStock: maxQuantity });
+        return false;
+      }
+      console.error("Error updating cart quantity", e);
+      toast("Impossible de modifier la quantité : " + e.message, { type: 'error' });
+      return false;
+    }
+  };
+
   const removeFromCart = async (cartDocId) => {
     if (!user || user.isAnonymous) {
       const newCart = cartItems.filter(item => item.id !== cartDocId);
       setCartItems(newCart);
-      localStorage.setItem('tat_local_cart', JSON.stringify(newCart));
+      await saveGuestCart(newCart);
       return;
     }
     await deleteDoc(doc(db, 'users', user.uid, 'cart', cartDocId));
@@ -1091,26 +1412,20 @@ const AppContent = () => {
 
   const handlePlaceOrder = async (orderData) => {
     if (!user) return;
+    const orderOwnerKey = currentCartOwnerKey;
 
-    // 1. Create Order - REMOVED (Handled by Cloud Function createOrder)
-    // The order is securely created server-side to manage stock transactions.
-    // We just need to clear the local cart now.
+    // Le serveur retire atomiquement uniquement les quantités commandées.
+    // Ne jamais vider ici le panier complet : un autre onglet peut avoir ajouté
+    // une nouvelle ligne pendant une réponse réseau ambiguë.
 
-    // 2. Clear Cart (Batch)
-    try {
-      if (cartItems.length > 0) {
-        const batch = writeBatch(db);
-        cartItems.forEach(item => {
-          batch.delete(doc(db, 'users', user.uid, 'cart', item.id));
-        });
-        await batch.commit();
-      }
-    } catch (e) {
-      console.error("Error clearing cart after order:", e);
+    // A late response from account A must never mutate account B's visible state.
+    if (currentCartOwnerKeyRef.current !== orderOwnerKey) {
+      console.info('Order completed for a previous cart owner; current UI left untouched.');
+      return;
     }
 
-    // 3. Handle Payment Redirect or Success
-    setCartItems([]); // Clear UI cart immediately
+    // Handle Payment Redirect or Success. Le listener Firestore conserve les
+    // éventuelles quantités ajoutées après la soumission.
     setIsCartOpen(false);
     setOrderSuccessMethod(orderData.paymentMethod || 'deferred');
     setShowOrderSuccess(true); // Trigger Success Modal
@@ -1127,8 +1442,11 @@ const AppContent = () => {
     setView('my-orders'); // Prepare Mes commandes behind the modal
     scrollToTop({ immediate: true, duration: 0 });
 
-    // Email simulation log
-    console.log("Order placed restoration:", persistentGalleryState, orderData);
+    console.info('Order flow completed', {
+      orderId: orderData.id || null,
+      paymentMethod: orderData.paymentMethod || 'unknown',
+      galleryRestored: Boolean(persistentGalleryState)
+    });
   };
 
   if (loading && !showStartupPreloader) return <div className="min-h-screen flex items-center justify-center bg-transparent"><div className="w-10 h-10 border-[3px] border-stone-200 border-t-stone-900 rounded-full animate-spin"></div></div>;
@@ -1140,10 +1458,13 @@ const AppContent = () => {
   // Active Admin List
   const currentAdminItems = adminCollection === 'furniture' ? items : boardItems;
   // Cart Total
-  const cartTotal = cartItems.reduce((sum, item) => sum + (item.price || 0), 0);
+  const cartTotal = getCartTotal(cartItems);
+  const cartItemCount = getCartItemCount(cartItems);
   const selectedAffiliateProduct = affiliateProducts.find((product) => product.id === selectedAffiliateProductId);
-  const selectedCatalogItem = items.concat(boardItems).find(i => i.id === selectedItemId);
+  const selectedCatalogItems = persistentGalleryState.activeCollection === 'cutting_boards' ? boardItems : items;
+  const selectedCatalogItem = selectedCatalogItems.find(i => i.id === selectedItemId);
   const isProductCatalogResolved = resolvedPublicCollections.furniture && resolvedPublicCollections.cutting_boards;
+  const isProductDetailResolved = isProductCatalogResolved && !pendingDeepLink;
 
   return (
     <div className={`min-h-screen font-sans selection:bg-stone-300 transition-colors duration-700 ${darkMode ? 'bg-[#0A0A0A] text-stone-200' : 'bg-[#FAFAF9] text-stone-900'}`}>
@@ -1176,8 +1497,9 @@ const AppContent = () => {
         onClose={() => setIsCartOpen(false)}
         cartItems={cartItems}
         onRemoveItem={removeFromCart}
+        onUpdateQuantity={updateCartQuantity}
+        getMaxQuantity={getCartItemMaxQuantity}
         totalPrice={cartTotal}
-        onRequireAuth={() => setPendingCheckout(true)}
         onCheckout={() => {
           setIsCartOpen(false);
           setView('checkout');
@@ -1232,7 +1554,7 @@ const AppContent = () => {
               onShowLogin={() => setShowFullLogin(true)}
               onOpenMenu={() => setIsMenuOpen(true)}
               onOpenCart={() => { setCartInteracted(true); setIsCartOpen(true); }}
-              cartCount={cartItems.length}
+              cartCount={cartItemCount}
               toggleTheme={() => setDarkMode(!darkMode)}
               darkMode={darkMode}
               onBack={view === 'detail' ? () => setView('gallery') : view === 'shop-detail' ? () => setView('shop') : null}
@@ -1272,9 +1594,9 @@ const AppContent = () => {
                   >
                     <ShoppingBag size={14} className="md:w-[15px] md:h-[15px]" />
                     <span className="hidden md:block text-[9.5px] md:text-[11px] font-bold uppercase tracking-widest">Panier</span>
-                    {cartItems.length > 0 && (
+                    {cartItemCount > 0 && (
                       <span className="absolute -top-1 -right-1 md:top-1 md:right-1 w-3 h-3 md:w-4 md:h-4 bg-amber-500 text-white flex items-center justify-center text-[7px] md:text-[9px] font-black rounded-full border border-white shadow-md">
-                        {cartItems.length}
+                        {cartItemCount}
                       </span>
                     )}
                   </button>
@@ -1340,7 +1662,7 @@ const AppContent = () => {
           saveGalleryState={saveGalleryState}
           affiliateProducts={affiliateProducts}
           homeSEOSettings={homeSEOSettings}
-          isProductCatalogResolved={isProductCatalogResolved}
+          isProductCatalogResolved={isProductDetailResolved}
           contactInfo={contactInfo}
         />
       </main>
@@ -1349,7 +1671,7 @@ const AppContent = () => {
         darkMode={darkMode}
         view={view}
         item={view === 'shop-detail' ? selectedAffiliateProduct : selectedCatalogItem}
-        cartCount={cartItems.length}
+        cartCount={cartItemCount}
         cartTotal={cartTotal}
         hidden={['admin', 'login', 'home'].includes(view) || isCartOpen || showFullLogin || showStartupPreloader || isMenuOpen || showMarketplacePopup || showOrderSuccess || stockAlert || isFooterVisible}
       />

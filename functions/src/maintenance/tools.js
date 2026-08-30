@@ -45,7 +45,7 @@ exports.resetAllStats = functions.runWith({ secrets: [GMAIL_EMAIL, GMAIL_PASSWOR
 
 // --- GARBAGE COLLECTOR (Storage orphelin) ---
 exports.runGarbageCollector = functions.runWith({ timeoutSeconds: 540, memory: '1GB' }).https.onCall(async (data, context) => {
-    checkIsAdmin(context);
+    checkIsSuperAdmin(context);
     const bucket = admin.storage().bucket();
     let stats = { scanDate: new Date().toISOString(), ghostDocsDeleted: 0, orphanedImagesDeleted: 0, errors: [] };
 

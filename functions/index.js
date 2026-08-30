@@ -9,11 +9,12 @@ admin.initializeApp();
 // ── COMMERCE ──────────────────────────────────────────────
 const { createOrder } = require('./src/commerce/createOrder');
 const { stripeWebhook } = require('./src/commerce/stripeWebhook');
-const { cancelOrderClient } = require('./src/commerce/cancelOrder');
+const { cancelOrderClient, cancelAndDeleteOrderAdmin } = require('./src/commerce/cancelOrder');
 
 exports.createOrder = createOrder;
 exports.stripeWebhook = stripeWebhook;
 exports.cancelOrderClient = cancelOrderClient;
+exports.cancelAndDeleteOrderAdmin = cancelAndDeleteOrderAdmin;
 
 // ── AUCTION ───────────────────────────────────────────────
 const { placeBid } = require('./src/auction/placeBid');
@@ -25,12 +26,15 @@ exports.wakeUp = wakeUp;
 // ── AUTH ──────────────────────────────────────────────────
 const { grantAdminOnAuth } = require('./src/auth/grantAdmin');
 const { addAdminUser, removeAdminUser, logUserConnection, getUserStats } = require('./src/auth/adminManagement');
+const { requestEmailOtp, verifyEmailOtp } = require('./src/auth/emailOtp');
 
 exports.grantAdminOnAuth = grantAdminOnAuth;
 exports.addAdminUser = addAdminUser;
 exports.removeAdminUser = removeAdminUser;
 exports.logUserConnection = logUserConnection;
 exports.getUserStats = getUserStats;
+exports.requestEmailOtp = requestEmailOtp;
+exports.verifyEmailOtp = verifyEmailOtp;
 
 // ── EMAIL (Triggers) ─────────────────────────────────────
 const { onOrderCreated, onOrderUpdated } = require('./src/email/orderEmails');

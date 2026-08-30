@@ -2305,7 +2305,7 @@ Tests :
 - `npm run build` :
   - premier essai bloque par sandbox Windows `spawn EPERM` sur esbuild ;
   - relance hors sandbox approuvee : OK ;
-  - warnings Vite existants : gros chunks et warning CSS Tailwind `text-[length:var(--...)]`.
+  - warnings Vite existants : gros chunks et ancienne classe arbitraire Tailwind fantôme issue du scan documentaire.
 
 Reste a faire :
 

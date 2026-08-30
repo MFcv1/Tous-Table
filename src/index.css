@@ -1,6 +1,9 @@
 @import "tailwindcss";
 @import "leaflet/dist/leaflet.css";
 
+@source not "../.agents";
+@source not "../.claude";
+
 @theme {
   --breakpoint-monitor: 1920px;
 

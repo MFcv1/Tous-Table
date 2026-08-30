@@ -17,9 +17,12 @@
         "firebase-functions": "^7.0.5",
         "jspdf": "^4.2.1",
         "jspdf-autotable": "^5.0.8",
-        "nodemailer": "^6.9.4",
+        "nodemailer": "9.0.6",
         "stripe": "^20.3.0",
         "tous-a-table-tat": "file:.."
+    },
+    "overrides": {
+        "uuid": "11.1.1"
     },
     "private": true
 }

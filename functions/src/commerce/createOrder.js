@@ -11,101 +11,219 @@
  */
 const functions = require('firebase-functions/v1');
 const admin = require('firebase-admin');
-const { checkIsAdmin } = require('../../helpers/security');
+const crypto = require('crypto');
 const { STRIPE_SECRET_KEY, GMAIL_EMAIL, GMAIL_PASSWORD } = require('../../helpers/secrets');
-const { APP_ID, getSiteUrl } = require('../../helpers/config');
+const { APP_ID } = require('../../helpers/config');
 const { invalidatePublicCatalogCache } = require('../public/catalog');
 
 const db = admin.firestore();
 const Stripe = require('stripe');
+const ALLOWED_STOCK_COLLECTIONS = new Set(['furniture', 'cutting_boards']);
+const CARD_PAYMENTS_ENABLED = false;
+
+const getAttemptId = (data) => {
+    const value = typeof data?.attemptId === 'string' ? data.attemptId.trim() : '';
+    return /^[a-zA-Z0-9-]{8,80}$/.test(value) ? value : 'missing';
+};
+
+const getUserFingerprint = (uid) => uid
+    ? crypto.createHash('sha256').update(uid).digest('hex').slice(0, 12)
+    : 'anonymous';
+
+const getIdempotentOrderId = (uid, attemptId) => `checkout_${crypto
+    .createHash('sha256')
+    .update(`${uid}:${attemptId}`)
+    .digest('hex')
+    .slice(0, 40)}`;
+
+const normalizeEmail = (value) => String(value || '').trim().toLowerCase();
+
+const validateShipping = (shipping) => {
+    if (!shipping || typeof shipping !== 'object' || Array.isArray(shipping)) return ['shipping'];
+    const missing = [];
+    const requiredFields = ['fullName', 'email', 'phone', 'address', 'zip', 'city'];
+    requiredFields.forEach(field => {
+        if (typeof shipping[field] !== 'string' || !shipping[field].trim()) missing.push(field);
+    });
+    if (!shipping.billing || typeof shipping.billing !== 'object') {
+        missing.push('billing');
+    } else {
+        ['name', 'address', 'zip', 'city'].forEach(field => {
+            if (typeof shipping.billing[field] !== 'string' || !shipping.billing[field].trim()) {
+                missing.push(`billing.${field}`);
+            }
+        });
+    }
+    if (shipping.clientType === 'entreprise') {
+        ['companyName', 'firstName', 'lastName', 'siret'].forEach(field => {
+            if (typeof shipping[field] !== 'string' || !shipping[field].trim()) missing.push(field);
+        });
+        if (String(shipping.siret || '').replace(/\D/g, '').length !== 14) missing.push('siret_format');
+    }
+    return [...new Set(missing)];
+};
+
+const buildItemRequests = (items) => items.map((sourceItem) => {
+    const colName = sourceItem?.collectionName || 'furniture';
+    const realItemId = sourceItem?.originalId || sourceItem?.id;
+    const quantity = Number(sourceItem?.quantity || 1);
+    if (!ALLOWED_STOCK_COLLECTIONS.has(colName)
+        || typeof realItemId !== 'string'
+        || !realItemId
+        || realItemId.includes('/')
+        || !Number.isInteger(quantity)
+        || quantity < 1
+        || quantity > 100) {
+        throw new functions.https.HttpsError('invalid-argument', 'Article de commande invalide.');
+    }
+    return {
+        sourceItem,
+        colName,
+        realItemId,
+        quantity,
+        itemRef: db.doc(`artifacts/${APP_ID}/public/data/${colName}/${realItemId}`)
+    };
+});
+
+const getCatalogPrice = (itemData) => {
+    const currentPrice = itemData?.currentPrice;
+    const rawPrice = currentPrice !== undefined
+        && currentPrice !== null
+        && String(currentPrice).trim() !== ''
+        ? currentPrice
+        : itemData?.startingPrice;
+    const price = Number(rawPrice ?? 0);
+    if (!Number.isFinite(price) || price < 0) {
+        throw new functions.https.HttpsError('failed-precondition', 'Prix catalogue invalide pour un article.');
+    }
+    return price;
+};
+
+const logCheckoutEvent = (level, event, details = {}) => {
+    functions.logger[level]('checkout_order_event', {
+        checkoutEvent: event,
+        ...details
+    });
+};
 
 exports.createOrder = functions.runWith({ secrets: [STRIPE_SECRET_KEY, GMAIL_EMAIL, GMAIL_PASSWORD] }).https.onCall(async (data, context) => {
-    if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Auth requise.');
+    const attemptId = getAttemptId(data);
+    const userFingerprint = getUserFingerprint(context.auth?.uid);
+    const logContext = {
+        attemptId,
+        userFingerprint,
+        paymentMethod: data?.orderData?.paymentMethod || 'missing',
+        itemCount: Array.isArray(data?.orderData?.items) ? data.orderData.items.length : 0
+    };
+
+    if (!context.auth) {
+        logCheckoutEvent('warn', 'rejected', { ...logContext, reason: 'unauthenticated' });
+        throw new functions.https.HttpsError('unauthenticated', 'Auth requise.');
+    }
 
     // Sécurité: Email vérifié obligatoire
     if (!context.auth.token.email_verified) {
+        logCheckoutEvent('warn', 'rejected', { ...logContext, reason: 'email_unverified' });
         throw new functions.https.HttpsError('failed-precondition',
             'Veuillez vérifier votre email avant de passer commande. Consultez votre boîte de réception (ou spams).'
         );
     }
 
-    const stripe = Stripe(STRIPE_SECRET_KEY.value());
-
     const userId = context.auth.uid;
-    const { orderData } = data;
+    const { orderData } = data || {};
+
+    if (attemptId === 'missing') {
+        logCheckoutEvent('warn', 'rejected', { ...logContext, reason: 'invalid_attempt_id' });
+        throw new functions.https.HttpsError('invalid-argument', 'Identifiant de tentative invalide.');
+    }
 
     if (!orderData || !orderData.items || !Array.isArray(orderData.items) || orderData.items.length === 0) {
+        logCheckoutEvent('warn', 'rejected', { ...logContext, reason: 'invalid_order' });
         throw new functions.https.HttpsError('invalid-argument', 'Format de commande invalide.');
     }
 
-    // 1. Validation de stock et calcul du prix TOTAL réel (côté serveur)
-    // Note: pour stripe_elements, cette étape est intégrée dans la transaction de réservation unique (section 4)
-    let totalAmount = 0;
-
-    if (orderData.paymentMethod === 'manual' || orderData.paymentMethod === 'deferred') {
-        try {
-            await db.runTransaction(async (transaction) => {
-                const stockTracker = {};
-
-                for (const item of orderData.items) {
-                    const colName = item.collectionName || 'furniture';
-                    const realItemId = item.originalId || item.id;
-                    const itemRef = db.doc(`artifacts/${APP_ID}/public/data/${colName}/${realItemId}`);
-                    const itemSnap = await transaction.get(itemRef);
-
-                    if (!itemSnap.exists) {
-                        throw new functions.https.HttpsError('not-found', `Produit "${realItemId}" introuvable.`);
-                    }
-
-                    const itemDb = itemSnap.data();
-                    const alreadyTaken = stockTracker[realItemId] || 0;
-                    const currentDbStock = itemDb.stock !== undefined ? Number(itemDb.stock) : 1;
-                    const isUniqueFurniture = colName === 'furniture';
-                    const qtyToReserve = item.quantity || 1;
-                    const availableStock = isUniqueFurniture
-                        ? (alreadyTaken > 0 ? 0 : currentDbStock)
-                        : currentDbStock - alreadyTaken;
-
-                    if (availableStock < qtyToReserve || itemDb.sold) {
-                        throw new functions.https.HttpsError('failed-precondition', `Article indisponible (Stock épuisé): ${itemDb.name}`);
-                    }
-
-                    stockTracker[realItemId] = alreadyTaken + qtyToReserve;
-
-                    // Prix prioritaire : Enchère gagnante > Prix actuel > Prix départ
-                    let realPrice = itemDb.currentPrice || itemDb.startingPrice || 0;
-                    totalAmount += realPrice;
-                }
-            });
-        } catch (e) {
-            console.error("Stock Check Error", e);
-            throw e;
-        }
+    let itemRequests;
+    try {
+        itemRequests = buildItemRequests(orderData.items);
+    } catch (error) {
+        logCheckoutEvent('warn', 'rejected', { ...logContext, reason: 'invalid_items' });
+        throw error;
     }
 
-    const SITE_URL = getSiteUrl();
+    const invalidShippingFields = validateShipping(orderData.shipping);
+    if (invalidShippingFields.length > 0) {
+        logCheckoutEvent('warn', 'rejected', {
+            ...logContext,
+            reason: 'invalid_shipping',
+            invalidFields: invalidShippingFields
+        });
+        throw new functions.https.HttpsError('invalid-argument', 'Informations de livraison ou de facturation incomplètes.');
+    }
+
+    const authenticatedEmail = normalizeEmail(context.auth.token.email);
+    const checkoutEmail = normalizeEmail(orderData.shipping.email);
+    if (!authenticatedEmail || checkoutEmail !== authenticatedEmail) {
+        logCheckoutEvent('warn', 'rejected', { ...logContext, reason: 'email_identity_mismatch' });
+        throw new functions.https.HttpsError(
+            'failed-precondition',
+            'Validez le code envoyé à l’adresse email utilisée pour cette commande.'
+        );
+    }
 
     // 2. Paiement Différé (Manuel: Virement/Chèque)
     if (orderData.paymentMethod === 'manual' || orderData.paymentMethod === 'deferred') {
-        const orderRef = db.collection('orders').doc();
+        const orderRef = db.collection('orders').doc(getIdempotentOrderId(userId, attemptId));
         try {
-            await db.runTransaction(async (transaction) => {
+            const transactionOutcome = await db.runTransaction(async (transaction) => {
+                const existingOrderSnap = await transaction.get(orderRef);
+                if (existingOrderSnap.exists) {
+                    const existingOrder = existingOrderSnap.data();
+                    if (existingOrder.userId !== userId || existingOrder.checkoutAttemptId !== attemptId) {
+                        throw new functions.https.HttpsError('already-exists', 'Conflit de tentative de commande.');
+                    }
+                    return { replayed: true };
+                }
+
                 const stockTrackerManual = {};
                 const serverItems = [];
                 let txTotal = 0;
-                for (const item of orderData.items) {
-                    const colName = item.collectionName || 'furniture';
-                    const realItemId = item.originalId || item.id;
-                    const itemRef = db.doc(`artifacts/${APP_ID}/public/data/${colName}/${realItemId}`);
+                // Firestore impose toutes les lectures avant la première écriture.
+                const itemDocs = await Promise.all(itemRequests.map(({ itemRef }) => transaction.get(itemRef)));
+                const cartSnapshot = await transaction.get(
+                    db.collection('users').doc(userId).collection('cart')
+                );
+                const submittedQuantityByProduct = new Map();
+                itemRequests.forEach(({ colName, realItemId, quantity }) => {
+                    const productKey = `${colName}:${realItemId}`;
+                    submittedQuantityByProduct.set(
+                        productKey,
+                        (submittedQuantityByProduct.get(productKey) || 0) + quantity
+                    );
+                });
+                const cartDocsByProduct = new Map();
+                cartSnapshot.docs.forEach((cartDoc) => {
+                    const cartData = cartDoc.data();
+                    const collectionName = cartData.collectionName || 'furniture';
+                    const productId = cartData.originalId || cartData.id;
+                    if (!productId) return;
+                    const productKey = `${collectionName}:${productId}`;
+                    const entries = cartDocsByProduct.get(productKey) || [];
+                    entries.push({ ref: cartDoc.ref, data: cartData });
+                    cartDocsByProduct.set(productKey, entries);
+                });
 
-                    const itemDoc = await transaction.get(itemRef);
-                    if (!itemDoc.exists) throw new Error("Item not found");
+                for (let index = 0; index < itemRequests.length; index += 1) {
+                    const { sourceItem, colName, realItemId, quantity: qtyToReserve, itemRef } = itemRequests[index];
+                    const itemDoc = itemDocs[index];
+                    if (!itemDoc.exists) {
+                        throw new functions.https.HttpsError('not-found', 'Un article de la commande est introuvable.');
+                    }
                     const itemDb = itemDoc.data();
 
                     const currentStock = itemDb.stock !== undefined ? Number(itemDb.stock) : 1;
-                    const alreadyTaken = stockTrackerManual[realItemId] || 0;
+                    const stockKey = `${colName}/${realItemId}`;
+                    const alreadyTaken = stockTrackerManual[stockKey] || 0;
                     const isUniqueFurniture = colName === 'furniture';
-                    const qtyToReserve = item.quantity || 1;
                     const availableStock = isUniqueFurniture
                         ? (alreadyTaken > 0 ? 0 : currentStock)
                         : currentStock - alreadyTaken;
@@ -115,7 +233,7 @@ exports.createOrder = functions.runWith({ secrets: [STRIPE_SECRET_KEY, GMAIL_EMA
                     }
 
                     const newStock = isUniqueFurniture ? 0 : Math.max(0, currentStock - qtyToReserve - alreadyTaken);
-                    const realPrice = itemDb.currentPrice || itemDb.startingPrice || 0;
+                    const realPrice = getCatalogPrice(itemDb);
 
                     txTotal += realPrice * qtyToReserve;
                     serverItems.push({
@@ -125,7 +243,7 @@ exports.createOrder = functions.runWith({ secrets: [STRIPE_SECRET_KEY, GMAIL_EMA
                         name: itemDb.name,
                         price: realPrice,
                         quantity: qtyToReserve,
-                        image: item.image || (itemDb.images && itemDb.images.length > 0 ? itemDb.images[0] : (itemDb.imageUrl || null))
+                        image: sourceItem.image || (itemDb.images && itemDb.images.length > 0 ? itemDb.images[0] : (itemDb.imageUrl || null))
                     });
 
                     const updates = { stock: newStock, buyerId: userId, updatedAt: admin.firestore.FieldValue.serverTimestamp() };
@@ -135,40 +253,60 @@ exports.createOrder = functions.runWith({ secrets: [STRIPE_SECRET_KEY, GMAIL_EMA
                     }
 
                     transaction.update(itemRef, updates);
-                    stockTrackerManual[realItemId] = alreadyTaken + qtyToReserve;
+                    stockTrackerManual[stockKey] = alreadyTaken + qtyToReserve;
                 }
+
+                // Retirer uniquement les quantités présentes dans cette
+                // commande. Une quantité ajoutée dans un autre onglet pendant
+                // la requête reste dans le panier.
+                submittedQuantityByProduct.forEach((submittedQuantity, productKey) => {
+                    let quantityToRemove = submittedQuantity;
+                    const matchingDocs = cartDocsByProduct.get(productKey) || [];
+                    matchingDocs.forEach(({ ref, data }) => {
+                        if (quantityToRemove <= 0) return;
+                        const currentQuantity = Math.max(1, Number(data.quantity) || 1);
+                        const removedQuantity = Math.min(currentQuantity, quantityToRemove);
+                        const remainingQuantity = currentQuantity - removedQuantity;
+                        quantityToRemove -= removedQuantity;
+                        if (remainingQuantity > 0) {
+                            transaction.update(ref, { quantity: remainingQuantity });
+                        } else {
+                            transaction.delete(ref);
+                        }
+                    });
+                });
                 transaction.set(orderRef, {
-                    ...orderData,
                     items: serverItems,
                     userId: userId,
                     userEmail: context.auth.token.email || orderData.shipping?.email,
+                    shipping: orderData.shipping,
                     paymentMethod: 'deferred',
                     total: txTotal,
                     status: 'pending_payment',
                     // Stock déjà décrémenté atomiquement (pièces uniques / planches).
                     stockReserved: true,
+                    checkoutAttemptId: attemptId,
                     createdAt: admin.firestore.FieldValue.serverTimestamp(),
                     stripeSessionId: null
                 });
+                return { replayed: false };
             });
 
-            // [NEW] Vidage du panier côté serveur (Sécurité maximale)
-            try {
-                const cartRef = db.collection('users').doc(userId).collection('cart');
-                const cartSnaps = await cartRef.get();
-                if (!cartSnaps.empty) {
-                    const batch = db.batch();
-                    cartSnaps.forEach(doc => batch.delete(doc.ref));
-                    await batch.commit();
-                }
-            } catch (err) {
-                console.error("Erreur vidage panier côté serveur:", err);
-            }
-
             invalidatePublicCatalogCache();
+            logCheckoutEvent('info', transactionOutcome.replayed ? 'replayed' : 'created', {
+                ...logContext,
+                orderId: orderRef.id,
+                status: 'pending_payment'
+            });
             return { success: true, orderId: orderRef.id };
         } catch (e) {
-            console.error("Manual Order Error", e);
+            const isKnownError = e instanceof functions.https.HttpsError;
+            logCheckoutEvent(isKnownError ? 'warn' : 'error', 'failed', {
+                ...logContext,
+                reason: isKnownError ? e.code : 'manual_order_internal',
+                orderId: orderRef.id
+            });
+            if (isKnownError) throw e;
             throw new functions.https.HttpsError('internal', "Erreur enregistrement commande.");
         }
     }
@@ -183,8 +321,19 @@ exports.createOrder = functions.runWith({ secrets: [STRIPE_SECRET_KEY, GMAIL_EMA
     // 3. En cas d'échec Stripe: restaure le stock + supprime la commande en transaction
     // 4. Le webhook payment_intent.succeeded confirme la commande (sans re-décrémenter le stock)
     // 5. Le webhook payment_intent.payment_failed restaure le stock
+    if (orderData.paymentMethod === 'stripe_elements' && !CARD_PAYMENTS_ENABLED) {
+        logCheckoutEvent('warn', 'rejected', { ...logContext, reason: 'card_payments_disabled' });
+        throw new functions.https.HttpsError(
+            'failed-precondition',
+            'Le paiement par carte est désactivé. Utilisez le virement bancaire.'
+        );
+    }
+
     if (orderData.paymentMethod === 'stripe_elements') {
-        const orderRef = db.collection('orders').doc();
+        // Branche historique inactive dans le parcours client actuel. L'initialisation
+        // reste locale à cette branche afin que le virement ne dépende jamais de Stripe.
+        const stripe = Stripe(STRIPE_SECRET_KEY.value());
+        const orderRef = db.collection('orders').doc(getIdempotentOrderId(userId, attemptId));
 
         // Transaction unique : valider stock + calculer prix serveur + réserver stock + créer commande
         // Remplace l'ancienne double-transaction (validation puis réservation) par une seule opération atomique
@@ -194,20 +343,28 @@ exports.createOrder = functions.runWith({ secrets: [STRIPE_SECRET_KEY, GMAIL_EMA
                 const stockTracker = {};
                 let txTotal = 0;
                 const serverItems = [];
+                const itemDocs = await Promise.all(
+                    itemRequests.map(({ itemRef }) => transaction.get(itemRef))
+                );
 
-                for (const item of orderData.items) {
-                    const colName = item.collectionName || 'furniture';
-                    const realItemId = item.originalId || item.id;
-                    const itemRef = db.doc(`artifacts/${APP_ID}/public/data/${colName}/${realItemId}`);
-                    const itemDoc = await transaction.get(itemRef);
+                for (let index = 0; index < itemRequests.length; index += 1) {
+                    const itemRequest = itemRequests[index];
+                    const {
+                        sourceItem: item,
+                        colName,
+                        realItemId,
+                        quantity: qtyToReserve,
+                        itemRef
+                    } = itemRequest;
+                    const itemDoc = itemDocs[index];
 
                     if (!itemDoc.exists) throw new functions.https.HttpsError('not-found', `Produit "${realItemId}" introuvable.`);
 
                     const itemDb = itemDoc.data();
-                    const alreadyTaken = stockTracker[realItemId] || 0;
+                    const stockKey = `${colName}:${realItemId}`;
+                    const alreadyTaken = stockTracker[stockKey] || 0;
                     const currentStock = itemDb.stock !== undefined ? Number(itemDb.stock) : 1;
                     const isUniqueFurniture = colName === 'furniture';
-                    const qtyToReserve = item.quantity || 1;
                     const availableStock = isUniqueFurniture
                         ? (alreadyTaken > 0 ? 0 : currentStock)
                         : currentStock - alreadyTaken;
@@ -217,15 +374,15 @@ exports.createOrder = functions.runWith({ secrets: [STRIPE_SECRET_KEY, GMAIL_EMA
                     }
 
                     // Prix recalculé côté serveur (jamais confiance au client)
-                    const realPrice = itemDb.currentPrice || itemDb.startingPrice || 0;
-                    txTotal += realPrice;
+                    const realPrice = getCatalogPrice(itemDb);
+                    txTotal += realPrice * qtyToReserve;
 
                     serverItems.push({
                         id: realItemId,
                         collectionName: colName,
                         name: itemDb.name,
                         price: realPrice,
-                        quantity: item.quantity || 1,
+                        quantity: qtyToReserve,
                         image: item.image || (item.images && item.images.length > 0 ? item.images[0] : (item.imageUrl || null))
                     });
 
@@ -238,7 +395,7 @@ exports.createOrder = functions.runWith({ secrets: [STRIPE_SECRET_KEY, GMAIL_EMA
                     }
 
                     transaction.update(itemRef, updates);
-                    stockTracker[realItemId] = alreadyTaken + qtyToReserve;
+                    stockTracker[stockKey] = alreadyTaken + qtyToReserve;
                 }
 
                 serverTotalAmount = txTotal;
@@ -302,23 +459,34 @@ exports.createOrder = functions.runWith({ secrets: [STRIPE_SECRET_KEY, GMAIL_EMA
             // Échec Stripe : restaurer le stock + supprimer la commande en transaction
             console.error("PaymentIntent Error, restoring stock:", error);
             try {
+                const restoreByProduct = new Map();
+                itemRequests.forEach(({ colName, realItemId, quantity }) => {
+                    const stockKey = `${colName}:${realItemId}`;
+                    const existing = restoreByProduct.get(stockKey);
+                    restoreByProduct.set(stockKey, {
+                        colName,
+                        realItemId,
+                        quantity: (existing?.quantity || 0) + quantity,
+                        itemRef: db.doc(`artifacts/${APP_ID}/public/data/${colName}/${realItemId}`)
+                    });
+                });
+                const restoreRequests = [...restoreByProduct.values()];
                 await db.runTransaction(async (transaction) => {
-                    for (const item of orderData.items) {
-                        const colName = item.collectionName || 'furniture';
-                        const realItemId = item.originalId || item.id;
-                        const itemRef = db.doc(`artifacts/${APP_ID}/public/data/${colName}/${realItemId}`);
-                        const itemDoc = await transaction.get(itemRef);
-                        if (!itemDoc.exists) continue;
+                    const itemDocs = await Promise.all(
+                        restoreRequests.map(({ itemRef }) => transaction.get(itemRef))
+                    );
+                    restoreRequests.forEach(({ quantity, itemRef }, index) => {
+                        const itemDoc = itemDocs[index];
+                        if (!itemDoc.exists) return;
                         const currentStock = itemDoc.data().stock !== undefined ? Number(itemDoc.data().stock) : 0;
-                        const qtyToRestore = item.quantity || 1;
                         transaction.update(itemRef, {
-                            stock: currentStock + qtyToRestore,
+                            stock: currentStock + quantity,
                             sold: false,
                             soldAt: admin.firestore.FieldValue.delete(),
                             buyerId: admin.firestore.FieldValue.delete(),
                             updatedAt: admin.firestore.FieldValue.serverTimestamp()
                         });
-                    }
+                    });
                     transaction.delete(orderRef);
                 });
                 invalidatePublicCatalogCache();
@@ -330,5 +498,6 @@ exports.createOrder = functions.runWith({ secrets: [STRIPE_SECRET_KEY, GMAIL_EMA
     }
 
     // Fallback: méthode de paiement non reconnue
+    logCheckoutEvent('warn', 'rejected', { ...logContext, reason: 'unsupported_payment_method' });
     throw new functions.https.HttpsError('invalid-argument', 'Méthode de paiement non supportée.');
 });

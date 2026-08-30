@@ -16,6 +16,7 @@ import { AlertTriangle, Bell, CalendarClock, Package, Truck, X } from 'lucide-re
 import { db } from '../../firebase/config';
 import { useAuth } from '../../contexts/AuthContext';
 import { getMillis } from '../../utils/time';
+import { getOrderReference } from '../../utils/generateInvoice';
 
 const REMINDER_STATUSES = ['paid', 'pending_payment', 'pending'];
 const REMINDER_QUERY_LIMIT = 50;
@@ -40,7 +41,7 @@ const getOrderTitle = (order) => {
         .filter(Boolean);
 
     if (itemNames.length > 0) return itemNames.join(', ');
-    return `Commande #${order.id.slice(0, 8).toUpperCase()}`;
+    return `Commande #${getOrderReference(order.id)}`;
 };
 
 const getAdminSnoozeDueAt = (order, adminUid) => (

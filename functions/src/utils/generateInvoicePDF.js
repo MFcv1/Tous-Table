@@ -1,6 +1,15 @@
 const { jsPDF } = require('jspdf');
 const autoTable = require('jspdf-autotable');
 
+function getOrderReference(orderId) {
+    const value = String(orderId || '').trim();
+    if (!value) return 'N-A';
+    if (value.startsWith('checkout_')) {
+        return `C-${value.slice('checkout_'.length, 'checkout_'.length + 10).toUpperCase()}`;
+    }
+    return value.slice(0, 8).toUpperCase();
+}
+
 function generateInvoiceBuffer(order) {
     // jsPDF in Node.js env
     const doc = new jsPDF();
@@ -29,9 +38,13 @@ function generateInvoiceBuffer(order) {
     doc.text("FACTURE", 195, 20, { align: "right" });
 
     // --- CLIENT INFO ---
-    const customerName = order.shipping?.fullName || order.userEmail || "Client";
-    const customerAddress = order.shipping?.address || "";
-    const customerCityZip = `${order.shipping?.zip || ""} ${order.shipping?.city || ""}`.trim();
+    const shipping = order.shipping || {};
+    const billing = shipping.billing || shipping;
+    const customerName = billing.name || shipping.companyName || shipping.fullName || order.userEmail || "Client";
+    const customerAddress = billing.address || "";
+    const customerAddressComplement = billing.addressComplement || "";
+    const customerCityZip = `${billing.zip || ""} ${billing.city || ""}`.trim();
+    const customerCountry = billing.country || shipping.country || 'France';
 
     doc.setFontSize(9);
     doc.setFont("helvetica", "bold");
@@ -40,7 +53,13 @@ function generateInvoiceBuffer(order) {
     doc.setFont("helvetica", "normal");
     doc.text(customerName, 15, 96);
     if (customerAddress) doc.text(customerAddress, 15, 101);
-    if (customerCityZip) doc.text(customerCityZip, 15, 106);
+    if (customerAddressComplement) doc.text(customerAddressComplement, 15, 106);
+    if (customerCityZip) doc.text(customerCityZip, 15, customerAddressComplement ? 111 : 106);
+    if (customerCountry && customerCountry !== 'France') doc.text(customerCountry, 15, customerAddressComplement ? 116 : 111);
+    if (shipping.clientType === 'entreprise' && shipping.siret) {
+        doc.text(`SIRET : ${shipping.siret}`, 15, customerAddressComplement ? 121 : 116);
+        if (shipping.tva) doc.text(`TVA : ${shipping.tva}`, 15, customerAddressComplement ? 126 : 121);
+    }
 
     // --- INVOICE INFO ---
     // Handle both _seconds (admin sdk) and seconds (client sdk) formatting just in case
@@ -53,7 +72,7 @@ function generateInvoiceBuffer(order) {
         dateStr = order.createdAt.toDate().toLocaleDateString('fr-FR');
     }
 
-    const formatId = order.id ? order.id.slice(0, 8).toUpperCase() : 'N/A';
+    const formatId = getOrderReference(order.id);
 
     doc.setFont("helvetica", "bold");
     doc.text("Facture n°", 150, 90);
@@ -75,7 +94,7 @@ function generateInvoiceBuffer(order) {
     const autoTableFunc = typeof autoTable === 'function' ? autoTable : autoTable.default;
     if (autoTableFunc) {
         autoTableFunc(doc, {
-            startY: 120,
+            startY: 135,
             head: [['QTÉ', 'DÉSIGNATION', 'PRIX UNIT.', 'MONTANT']],
             body: tableData,
             theme: 'plain',
@@ -137,4 +156,4 @@ function generateInvoiceBuffer(order) {
     return Buffer.from(doc.output('arraybuffer'));
 }
 
-module.exports = { generateInvoiceBuffer };
+module.exports = { generateInvoiceBuffer, getOrderReference };

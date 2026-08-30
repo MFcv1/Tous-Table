@@ -85,6 +85,12 @@ Le gate doit continuer a echouer si :
 
 Verification initiale : `npm run verify:prod-furniture` OK le 2026-05-29.
 
+Nettoyage du 2026-08-30 : quatre fallbacks (`O9nOJSI5v7CGVxsWMpWJ`,
+`Sbi5LHe6v3SjtUbY2eqx`, `Zxiiz1aQgT7NG8IxGhxU`, `zHwnm17ybqkWCmr0Kz2a`)
+ont été retirés après que le gate en lecture seule a confirmé que ces documents
+n'existent plus dans le catalogue production actuel. Aucune écriture Firestore n'a été
+effectuée ; les anciens dumps d'audit restent l'archive historique.
+
 ### 5. Nettoyer progressivement
 
 - Apres migration complete, reduire le mapping aux seuls vrais cas historiques.

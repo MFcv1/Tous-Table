@@ -4,7 +4,11 @@ import { getAuth, GoogleAuthProvider } from 'firebase/auth';
 import { getStorage } from 'firebase/storage';
 import { getFunctions } from 'firebase/functions';
 import { getAnalytics } from 'firebase/analytics';
-import { initializeAppCheck, ReCaptchaV3Provider } from 'firebase/app-check';
+import {
+  initializeAppCheck,
+  ReCaptchaEnterpriseProvider,
+  ReCaptchaV3Provider
+} from 'firebase/app-check';
 
 // --- CONFIGURATION FIREBASE (Via Variables d'Environnement) ---
 // Cette configuration est chargée dynamiquement depuis le fichier .env
@@ -19,6 +23,7 @@ const firebaseConfig = {
 };
 
 const app = initializeApp(firebaseConfig);
+let appCheck = null;
 
 // ============================================================
 // SÉCURITÉ: Firebase App Check (Anti-Bot / Anti-Script)
@@ -27,12 +32,19 @@ const app = initializeApp(firebaseConfig);
 // ============================================================
 if (typeof window !== 'undefined') {
   // Active le mode debug pour localhost (npm run dev) avec un token fixe
-  if (window.location.hostname === 'localhost') {
+  if (
+    ['localhost', '127.0.0.1'].includes(window.location.hostname)
+    || window.location.hostname.endsWith('.localhost')
+  ) {
     window.FIREBASE_APPCHECK_DEBUG_TOKEN = import.meta.env.VITE_APPCHECK_DEBUG_TOKEN || true;
   }
 
-  initializeAppCheck(app, {
-    provider: new ReCaptchaV3Provider(import.meta.env.VITE_RECAPTCHA_SITE_KEY),
+  const AppCheckProvider = import.meta.env.VITE_RECAPTCHA_ENTERPRISE === 'true'
+    ? ReCaptchaEnterpriseProvider
+    : ReCaptchaV3Provider;
+
+  appCheck = initializeAppCheck(app, {
+    provider: new AppCheckProvider(import.meta.env.VITE_RECAPTCHA_SITE_KEY),
     isTokenAutoRefreshEnabled: true // Renouvelle automatiquement le token
   });
 }
@@ -49,4 +61,4 @@ const appId = import.meta.env.VITE_APP_LOGICAL_NAME || 'tat-made-in-normandie';
 // --- PROVIDERS AUTHENTIFICATION ---
 const googleProvider = new GoogleAuthProvider();
 
-export { auth, db, storage, functions, analytics, appId, googleProvider };
+export { auth, db, storage, functions, analytics, appId, googleProvider, appCheck };

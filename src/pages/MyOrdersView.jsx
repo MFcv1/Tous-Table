@@ -6,7 +6,7 @@ import { functions } from '../firebase/config';
 import { httpsCallable } from 'firebase/functions';
 import { Package, Truck, XCircle, MessageCircle, ArrowLeft, CheckCircle, Download, CreditCard, Copy, Check, Loader2, Star, AlertTriangle } from 'lucide-react';
 import SEO from '../components/shared/SEO';
-import { generateInvoice } from '../utils/generateInvoice';
+import { generateInvoice, getOrderReference } from '../utils/generateInvoice';
 import { buildWhatsAppUrl, getWhatsAppPhoneFromContactInfo, normalizeWhatsAppPhone } from '../utils/whatsapp';
 
 const formatPrice = (price) => {
@@ -168,7 +168,7 @@ const MyOrdersView = ({ user, onBack, darkMode, contactInfo }) => {
                                 {/* HEADER COMMANDE */}
                                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 md:gap-6 mb-6 md:mb-10 border-b pb-5 md:pb-8 border-stone-100 dark:border-stone-700/50">
                                     <div className="space-y-1">
-                                        <p className="text-xs font-black uppercase tracking-widest opacity-40">Commande #{order.id.slice(0, 8)}</p>
+                                        <p className="text-xs font-black uppercase tracking-widest opacity-40">Commande #{getOrderReference(order.id)}</p>
                                         <p className="text-sm font-bold opacity-60">
                                             Passée le {new Date(order.createdAt?.seconds * 1000).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })}
                                         </p>

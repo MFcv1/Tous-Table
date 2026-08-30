@@ -13,7 +13,7 @@ import { useLiveTheme } from '../../hooks/useLiveTheme';
 import AnimatedPrice from '../../components/ui/AnimatedPrice';
 import ShopProductCard from '../../components/shop/ShopProductCard';
 import LazyYouTubeEmbed from '../../components/ui/LazyYouTubeEmbed';
-import { lockPageScroll, scrollToTop } from '../../utils/smoothScroll';
+import { lockPageScroll } from '../../utils/smoothScroll';
 
 const RECOMMENDED_TUTORIALS = [
     { videoId: "ictKhF92-pY", label: "Comment appliquer Rubio Monocoat Oil Plus 2C sur un meuble", productMatch: "Rubio Monocoat" },
@@ -349,7 +349,10 @@ const ArchitecturalProductDetail = ({ item, itemId, isCatalogResolving = false, 
     const isAuctionOver = item?.auctionActive && getMillis(item.auctionEnd) < Date.now();
     const isWinner = isAuctionOver && user && item?.lastBidderId === user.uid;
 
-    const isInCart = cartItems.some(cartItem => cartItem.originalId === item?.id);
+    const isInCart = cartItems.some(cartItem => (
+        cartItem.originalId === item?.id
+        && (cartItem.collectionName || 'furniture') === collectionName
+    ));
 
     // ── Fly-to-Cart Animation ──
     const [flyToCartAnim, setFlyToCartAnim] = useState(null); // { src, startRect, endRect }

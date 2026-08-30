@@ -43,7 +43,7 @@ Cette phase nettoie le **stockage de fichiers** (disque dur). C'est l'étape qui
 ## 🚀 Utilisation
 
 *   **Via l'Admin Dashboard :** Bouton "Maintenance Système" dans la "Zone de Danger".
-*   **Permissions :** Réservé strictement à l'Administrateur (vérification email hardcodée + Custom Claim).
+*   **Permissions :** Réservé strictement au compte développeur `matthis.fradin2@gmail.com`. Un Custom Claim `admin` seul est refusé.
 *   **Performance :**
     *   Timeout étendu à **540 secondes** (9 minutes) pour traiter de gros volumes.
     *   Mémoire allouée : **1GB** (nécessaire pour lister des milliers de fichiers).
@@ -56,4 +56,4 @@ Si vous demandez des optimisations ou des modifications sur ce script, gardez en
 3.  **Backups :** Idéalement, faire un backup complet avant de lancer ce script sur une production massive.
 
 ---
-*Dernière mise à jour : 06 Février 2026*
+*Dernière mise à jour : 29 Août 2026 — garde `checkIsSuperAdmin`, correctif local non déployé.*

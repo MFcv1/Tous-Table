@@ -139,6 +139,17 @@ Légende : `[ ]` todo · `[~]` en cours · `[x]` done · `[-]` skip justifié
 - publicCatalog smoke : 200, appId=sandboxtat, Cache-Control 60/120/60, 59 furniture / 24 boards.
 - Reste : batterie de tests user.
 
+### 2026-08-29 — Audit stabilité checkout + catalogue (sandbox déployée et testée)
+
+- Checkout : validation particulier/entreprise centralisée, récapitulatif inline obligatoire, vraie facturation distincte, rafraîchissement du token après vérification e-mail.
+- Commande/facture : payload normalisé, validation serveur, factures/e-mails basés sur `shipping.billing`, logs structurés sans PII.
+- Stock : transaction virement multi-articles remise dans l'ordre lecture→écriture, quantités de planches réservées correctement et restauration d'annulation groupée ; le parcours virement n'initialise plus le client Stripe dormant.
+- Catalogue : architecture HTTP cache + live galerie/fiche confirmée pertinente ; listener checkout par article désormais sensible à `stock < quantité` et retire aussi une ancienne indisponibilité après restock.
+- Auth : OTP e-mail à 6 chiffres et connexion Google validés sur `sandboxtat`; App Check est accepté par les callables OTP et l'autorité de signature de custom token est limitée au service account sandbox sur lui-même.
+- E2E sandbox : compte Google recréé, panier d'un meuble, checkout particulier, confirmation des informations, commande virement de 30 €, réservation catalogue, page Mes commandes, IBAN/Wero, e-mail client et facture PDF vérifiés. Commande de test conservée en attente pour ne pas restaurer/supprimer le stock sans accord utilisateur.
+- Vérifs : frontières OTP 10/10, frontières admin 15/15, tests helper sécurité 5/5, syntaxe Functions 14/14, analytics, SEO 25/25, build Vite et audit sécurité du patch (32/32 fichiers, aucun finding) réussis.
+- **Production intacte** : aucun deploy ni aucune écriture prod. Stripe reste hors scope (désactivé ; UI/code historique dormant). Reste avant proposition prod : décision sur l'annulation de la commande test, recette live d'annulation/retour stock si souhaitée, puis preflight prod et accord explicite séparé.
+
 ---
 
 ## Prompts de reprise (à coller / adapter en fin de phase)
