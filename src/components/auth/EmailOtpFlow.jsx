@@ -8,6 +8,16 @@ const isValidEmail = (value) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizeEmail
 
 function getOtpError(error, fallback) {
   const code = String(error?.code || '').toLowerCase();
+  const message = String(error?.message || '').toLowerCase();
+  if (
+    code.includes('appcheck')
+    || code.includes('app-check')
+    || message.includes('appcheck')
+    || message.includes('app-check')
+    || message.includes('initial-throttle')
+  ) {
+    return 'La vérification de sécurité a besoin de quelques secondes. Patientez, puis réessayez.';
+  }
   if (code.includes('resource-exhausted') || code.includes('too-many-requests')) {
     return 'Trop de demandes. Patientez avant de réessayer.';
   }
@@ -18,7 +28,7 @@ function getOtpError(error, fallback) {
   if (code.includes('network') || code.includes('unavailable')) {
     return 'La connexion a été interrompue. Réessayez dans quelques instants.';
   }
-  return error?.message || fallback;
+  return fallback;
 }
 
 const EmailOtpFlow = ({
