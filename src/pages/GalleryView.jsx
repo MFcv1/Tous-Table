@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { useLiveTheme } from '../hooks/useLiveTheme';
 import { useCallback } from 'react';
 // Note : la marketplace repose sur le scroll natif pour limiter le coût CPU/GPU.
@@ -159,9 +159,9 @@ const GalleryView = ({
         const selectedItem = filteredItems.find((item) => item.id === id);
         if (selectedItem) handleProductIntent(selectedItem);
 
-        // [PERSISTENCE] Save current sub-view state before navigating away
+        // [PERSISTENCE] Save current sub-view state + scroll position before navigating away
         if (saveGalleryState) {
-            saveGalleryState({ activeCollection, filter, activeCategory });
+            saveGalleryState({ activeCollection, filter, activeCategory, scrollY: window.scrollY });
         }
         onSelectItem(id);
     };

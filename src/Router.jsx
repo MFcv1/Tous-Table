@@ -5,7 +5,7 @@ import RootLandingView from './pages/RootLandingView';
 import OrderSuccessModal from './components/orders/OrderSuccessModal';
 import SEO from './components/shared/SEO';
 import { motion, AnimatePresence } from 'framer-motion';
-import { scrollToTop } from './utils/smoothScroll';
+import { scrollToTop, scrollToTarget } from './utils/smoothScroll';
 
 // --- CODE SPLITTING: Chargement différé des pages secondaires ---
 // Optimisation critique pour mobile : on ne télécharge pas tout d'un coup.
@@ -163,7 +163,15 @@ const AppRouter = ({
                     affiliateProducts={affiliateProducts}
                     homeSEOSettings={homeSEOSettings}
                     darkMode={darkMode}
-                    onOpenGallery={() => {
+                    onOpenGallery={(categoryOptions, path) => {
+                        if (categoryOptions) {
+                            saveGalleryState?.(categoryOptions);
+                        } else {
+                            saveGalleryState?.({ activeCollection: 'furniture', activeCategory: 'all', filter: 'fixed' });
+                        }
+                        if (path) {
+                            window.history.pushState({ view: 'gallery' }, '', path);
+                        }
                         startGalleryTransition();
                         setTimeout(() => completeGalleryTransition(), 640);
                     }}

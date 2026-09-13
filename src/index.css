@@ -855,7 +855,15 @@ img {
 ::view-transition-new(root) {
   z-index: 9999;
 }
-
 ::view-transition-old(root) {
   z-index: 1;
 }
+
+/* --- LEAFLET RETINA & SEAMLESS TILING FIX (MOBILE / RETINA) --- */
+.tat-root-map-frame .leaflet-tile {
+  outline: 1px solid transparent;
+  scale: 1.004;
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
+}
+

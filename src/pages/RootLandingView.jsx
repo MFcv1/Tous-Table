@@ -102,25 +102,33 @@ const localFocusCards = [
         title: 'Tables de ferme',
         text: 'Plateaux anciens, bois massif et grandes tablées familiales.',
         search: '12 pièces disponibles',
-        image: '/images/gallery/cat_table_ferme.png',
+        image: '/images/gallery/cat_grande_table_banc.webp',
+        href: '/meubles-anciens/tables-de-ferme',
+        categoryState: { activeCollection: 'furniture', activeCategory: 'table', filter: 'fixed' },
     },
     {
         title: 'Buffets & enfilades',
         text: 'Rangement ancien, belle patine et présence discrète dans la pièce.',
         search: '8 pièces disponibles',
-        image: '/images/gallery/cat_buffet.png',
+        image: '/images/gallery/cat_buffet_bas.webp',
+        href: '/meubles-anciens/buffets',
+        categoryState: { activeCollection: 'furniture', activeCategory: 'buffet', filter: 'fixed' },
     },
     {
         title: 'Armoires & commodes',
         text: 'Pièces verticales et meubles de caractère restaurés à l\'atelier.',
         search: '7 pièces disponibles',
-        image: '/images/gallery/cat_armoire.png',
+        image: '/images/gallery/cat_armoire_annees_60.webp',
+        href: '/meubles-anciens/armoires',
+        categoryState: { activeCollection: 'furniture', activeCategory: 'armoire', filter: 'fixed' },
     },
     {
         title: 'Bois massif & entretien',
         text: 'Planches, finitions et conseils pour conserver la matière vivante.',
         search: 'Guides & accessoires',
-        image: '/images/gallery/hero-planches-2026-960.webp',
+        image: '/images/gallery/cat_planche_xviii.webp',
+        href: '/planches-a-decouper-anciennes',
+        categoryState: { activeCollection: 'cutting_boards', activeCategory: 'all', filter: 'fixed' },
     },
 ];
 
@@ -483,7 +491,7 @@ const RootLandingView = ({
         const mm = gsap.matchMedia();
 
         mm.add('(prefers-reduced-motion: reduce)', () => {
-            gsap.set('.tat-root-nav, .tat-root-hero-copy > *, .tat-root-reveal, .tat-root-media, .tat-root-word', {
+            gsap.set('.tat-root-nav, .tat-root-hero-copy > *, .tat-root-reveal, .tat-root-media, .tat-root-word, .tat-root-collection-box, .tat-root-focus-card', {
                 clearProps: 'transform',
                 opacity: 1,
             });
@@ -493,7 +501,7 @@ const RootLandingView = ({
             gsap.from('.tat-root-nav', { y: -24, opacity: 0, duration: 0.8, ease: 'power3.out' });
             gsap.from('.tat-root-hero-copy > *', { y: 42, opacity: 0, duration: 1, stagger: 0.08, ease: 'power3.out', delay: 0.15 });
             gsap.from('.tat-root-hero-carousel', { scale: 1.04, opacity: 0, duration: 1.1, ease: 'power3.out', delay: 0.2 });
-            gsap.utils.toArray('.tat-root-reveal:not(.tat-root-map-card):not(.tat-root-focus-card):not(.tat-root-delivery-card)').forEach((element) => {
+            gsap.utils.toArray('.tat-root-reveal:not(.tat-root-map-card):not(.tat-root-focus-card):not(.tat-root-collection-box):not(.tat-root-delivery-card)').forEach((element) => {
                 gsap.from(element, {
                     y: 34,
                     opacity: 0,
@@ -503,26 +511,35 @@ const RootLandingView = ({
                 });
             });
             gsap.fromTo('.tat-root-map-card',
-                { x: -26, y: 18, opacity: 0, scale: 0.985 },
+                { y: 20, opacity: 0 },
                 {
-                    x: 0,
                     y: 0,
                     opacity: 1,
-                    scale: 1,
-                    duration: 0.75,
+                    duration: 0.7,
                     ease: 'power3.out',
+                    clearProps: 'transform,opacity',
+                    scrollTrigger: { trigger: '.tat-root-local-grid', start: 'top 88%' },
+                });
+            gsap.fromTo('.tat-root-collection-box',
+                { y: 20, opacity: 0 },
+                {
+                    y: 0,
+                    opacity: 1,
+                    duration: 0.7,
+                    ease: 'power3.out',
+                    clearProps: 'transform,opacity',
                     scrollTrigger: { trigger: '.tat-root-local-grid', start: 'top 88%' },
                 });
             gsap.fromTo('.tat-root-local-grid .tat-root-focus-card',
-                { y: 32, opacity: 0, scale: 0.95 },
+                { y: 16, opacity: 0 },
                 {
                     y: 0,
                     opacity: 1,
-                    scale: 1,
-                    duration: 0.85,
-                    stagger: 0.1,
-                    ease: 'back.out(1.2)',
-                    scrollTrigger: { trigger: '.tat-root-local-grid', start: 'top 86%' },
+                    duration: 0.6,
+                    stagger: 0.08,
+                    ease: 'power3.out',
+                    clearProps: 'transform,opacity',
+                    scrollTrigger: { trigger: '.tat-root-local-grid', start: 'top 85%' },
                 });
             gsap.fromTo('.tat-root-delivery-card',
                 { y: 26, opacity: 0 },
@@ -765,15 +782,17 @@ const RootLandingView = ({
                                     <MapPin size={18} strokeWidth={1.5} />
                                 </div>
                             </div>
-                            <div ref={mapRef} className="tat-root-map-frame relative flex-1 w-full min-h-[350px] [perspective:1200px]">
+                            <div ref={mapRef} className="tat-root-map-frame relative flex-1 w-full min-h-[350px]">
                             {/* 3D FLIP CONTAINER */}
-                            <div className={`relative h-full w-full transition-transform duration-[1.1s] ease-[cubic-bezier(0.23,1,0.32,1)] [transform-style:preserve-3d] ${showReviewOverlay ? '[transform:rotateY(180deg)]' : ''}`}>
+                            <div className={`relative h-full w-full transition-transform duration-[1.1s] ease-[cubic-bezier(0.23,1,0.32,1)] ${showReviewOverlay ? '[perspective:1200px] [transform-style:preserve-3d] [transform:rotateY(180deg)]' : ''}`}>
                                 
                                 {/* FRONT FACE : MAP */}
-                                <div className={`absolute inset-0 h-full w-full overflow-hidden rounded-[1rem] bg-[#160f09] text-white md:rounded-[1.2rem] [backface-visibility:hidden] [-webkit-backface-visibility:hidden] ${showReviewOverlay ? 'pointer-events-none' : ''}`}>
+                                <div className={`absolute inset-0 h-full w-full overflow-hidden rounded-[1rem] bg-[#160f09] text-white md:rounded-[1.2rem] ${showReviewOverlay ? '[backface-visibility:hidden] [-webkit-backface-visibility:hidden] pointer-events-none' : ''}`}>
                                     <MapContainer 
                                         center={[49.1396, -0.3475]} 
                                         zoom={6} 
+                                        zoomSnap={1}
+                                        zoomDelta={1}
                                         scrollWheelZoom={false} 
                                         doubleClickZoom={false}
                                         touchZoom={false}
@@ -783,7 +802,8 @@ const RootLandingView = ({
                                         className="absolute inset-0 h-full w-full z-0 transition-all duration-700 hover:[filter:none] [filter:sepia(0.3)_contrast(0.95)_brightness(0.95)_hue-rotate(-10deg)]"
                                     >
                                         <TileLayer
-                                            url="https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}"
+                                            url="https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}&scale=2"
+                                            tileSize={256}
                                         />
                                         <Marker position={[49.1396, -0.3475]} icon={customMarkerIcon} />
                                         <MapZoomControls />
@@ -880,7 +900,7 @@ const RootLandingView = ({
                         </div>
                     </div>
                 </div>
-                    <div className="flex flex-col rounded-[1.6rem] border border-white/5 bg-white/[0.02] p-1.5 shadow-[0_16px_40px_rgba(0,0,0,0.3)] md:rounded-[2rem] lg:col-span-6">
+                    <div className="tat-root-collection-box flex flex-col rounded-[1.6rem] border border-white/5 bg-white/[0.02] p-1.5 shadow-[0_16px_40px_rgba(0,0,0,0.3)] md:rounded-[2rem] lg:col-span-6">
                         <div className="flex h-full flex-col rounded-[1.2rem] border border-white/5 bg-[#13100d]/90 p-4 md:rounded-[1.6rem] md:p-5 lg:px-7 lg:py-5">
                             <div className="mb-4 md:mb-5">
                                 <h3 className="font-serif text-[clamp(1.8rem,2.5vw,2.2rem)] leading-none tracking-[-0.03em] text-white">Explorer la collection</h3>
@@ -889,7 +909,15 @@ const RootLandingView = ({
                             <div className="flex flex-1 flex-col gap-[3px] md:gap-1.5">
                                 {localFocusCards.map((card, index) => (
                                     <React.Fragment key={card.title}>
-                                        <a href="/meubles-anciens" onClick={(event) => handleInternalNav(event, onOpenGallery)} className="tat-root-reveal tat-root-focus-card group relative flex items-center gap-3 rounded-[1rem] p-1.5 transition-all duration-300 md:gap-4 md:p-2 md:hover:bg-white/[0.04]">
+                                        <a
+                                            href={card.href}
+                                            onClick={(event) => {
+                                                if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+                                                event.preventDefault();
+                                                onOpenGallery(card.categoryState, card.href);
+                                            }}
+                                            className="tat-root-focus-card group relative flex items-center gap-3 rounded-[1rem] p-1.5 transition-colors duration-200 md:gap-4 md:p-2 md:hover:bg-white/[0.04]"
+                                        >
                                             {/* HIGH-END DOUBLE BEZEL FRAME */}
                                             <div className="relative shrink-0 p-[2px] md:p-1 rounded-[10px] md:rounded-[14px] bg-white/[0.02] border border-white/5 shadow-md">
                                                 <div className="relative h-[60px] w-[88px] md:h-[76px] md:w-[124px] overflow-hidden rounded-[8px] md:rounded-[11px] bg-stone-900 shadow-[inset_0_1px_1px_rgba(255,255,255,0.15)] ring-1 ring-inset ring-white/10">
@@ -901,7 +929,7 @@ const RootLandingView = ({
                                                 <p className="mt-1 line-clamp-2 text-[10px] leading-snug text-stone-400 md:mt-1.5 md:text-[11.5px]">{card.text}</p>
                                                 <p className="mt-1.5 truncate text-[9px] font-black uppercase tracking-[0.16em] text-[#dba45f] md:mt-2 md:text-[10px]">{card.search}</p>
                                             </div>
-                                            <div className="absolute right-3 top-1/2 flex -translate-y-1/2 items-center justify-center text-white/40 transition-colors group-hover:text-[#dba45f] md:right-4">
+                                            <div className="absolute right-3 top-1/2 flex -translate-y-1/2 items-center justify-center text-white/40 transition-all duration-300 group-hover:text-[#dba45f] group-hover:translate-x-0.5 md:right-4">
                                                 <ArrowRight size={16} strokeWidth={2} />
                                             </div>
                                         </a>

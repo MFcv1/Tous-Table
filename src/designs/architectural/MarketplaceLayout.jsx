@@ -666,9 +666,6 @@ const MarketplaceLayout = ({
     const [activePriceRange, setActivePriceRange] = useState('');
     const [sortMode, setSortMode] = useState('curated');
 
-    useEffect(() => {
-        setActiveCategory(activeCollection === 'cutting_boards' ? 'all' : (initialCategory || 'all'));
-    }, [activeCollection, initialCategory]);
 
     // === ARCHITECTURE MASONRY JS-DRIVEN ===
     // On rend N colonnes flex-col indépendantes (cf. NUM_COLS responsive). Chaque carte est
@@ -775,13 +772,12 @@ const MarketplaceLayout = ({
     }, [activeCollection, onCategoryChange, resetView]);
 
     useEffect(() => {
+        setActiveCategory(activeCollection === 'cutting_boards' ? 'all' : (initialCategory || 'all'));
         resetView();
         setActiveMaterial('');
         setActivePriceRange('');
-        if (activeCollection === 'cutting_boards') {
-            setActiveCategory('all');
-        }
-    }, [activeCollection, resetView]);
+    }, [activeCollection, initialCategory, resetView]);
+
 
     const heroConfig = HERO_BY_COLLECTION[activeCollection] || HERO_BY_COLLECTION.furniture;
 
