@@ -91,11 +91,60 @@ const AppRouter = ({
     const { user, isAdmin, logout } = useAuth();
     const [isMoreMenuOpen, setIsMoreMenuOpen] = React.useState(false);
     const canUseDangerousAdminActions = user?.email?.trim().toLowerCase() === 'matthis.fradin2@gmail.com';
+    // Ref pour restauration de scroll galerie / accueil / boutique après retour depuis une fiche produit
+    const pendingGalleryScrollRef = React.useRef(null);
+    const originViewRef = React.useRef('gallery');
+    const homeScrollYRef = React.useRef(null);
+    const shopScrollYRef = React.useRef(null);
+    const prevViewRef = React.useRef(view);
 
     React.useLayoutEffect(() => {
+        const comingFromDetail = prevViewRef.current === 'detail' || prevViewRef.current === 'shop-detail';
+
         if (view === 'detail' || view === 'shop-detail') {
             scrollToTop({ immediate: true, duration: 0 });
+        } else if (view === 'gallery' && comingFromDetail) {
+            // Restaurer la position de scroll quand on revient sur la galerie depuis une fiche produit
+            const scrollY = pendingGalleryScrollRef.current ?? persistentGalleryState?.scrollY;
+            pendingGalleryScrollRef.current = null;
+            if (typeof scrollY === 'number' && scrollY > 0) {
+                const restoreGallery = () => {
+                    scrollToTarget(scrollY, { immediate: true, duration: 0 });
+                };
+                requestAnimationFrame(() => {
+                    restoreGallery();
+                    requestAnimationFrame(restoreGallery);
+                });
+                setTimeout(restoreGallery, 60);
+                setTimeout(restoreGallery, 180);
+            }
+        } else if (view === 'home' && comingFromDetail && typeof homeScrollYRef.current === 'number' && homeScrollYRef.current > 0) {
+            const homeY = homeScrollYRef.current;
+            homeScrollYRef.current = null;
+            const restoreHome = () => {
+                scrollToTarget(homeY, { immediate: true, duration: 0 });
+            };
+            requestAnimationFrame(() => {
+                restoreHome();
+                requestAnimationFrame(restoreHome);
+            });
+            setTimeout(restoreHome, 60);
+            setTimeout(restoreHome, 180);
+        } else if (view === 'shop' && comingFromDetail && typeof shopScrollYRef.current === 'number' && shopScrollYRef.current > 0) {
+            const shopY = shopScrollYRef.current;
+            shopScrollYRef.current = null;
+            const restoreShop = () => {
+                scrollToTarget(shopY, { immediate: true, duration: 0 });
+            };
+            requestAnimationFrame(() => {
+                restoreShop();
+                requestAnimationFrame(restoreShop);
+            });
+            setTimeout(restoreShop, 60);
+            setTimeout(restoreShop, 180);
         }
+
+        prevViewRef.current = view;
     }, [view, selectedItemId, selectedAffiliateProductId]);
 
     const adminTabs = [
@@ -178,7 +227,15 @@ const AppRouter = ({
                     onOpenShop={() => { setView('shop'); scrollToTop(); }}
                     onOpenAbout={() => { setView('about'); scrollToTop(); }}
                     onOpenDelivery={() => { setView('delivery'); scrollToTop(); }}
-                    onSelectItem={(id) => { setSelectedItemId(id); setView('detail'); scrollToTop(); }}
+                    onSelectItem={(id) => {
+                        originViewRef.current = 'home';
+                        const currentScrollY = window.scrollY;
+                        if (currentScrollY > 0) {
+                            homeScrollYRef.current = currentScrollY;
+                        }
+                        setSelectedItemId(id);
+                        setView('detail');
+                    }}
                 />
             )}
 
@@ -205,7 +262,15 @@ const AppRouter = ({
                             affiliateProducts={affiliateProducts}
                             isAdmin={isAdmin} isSecretGateOpen={isSecretGateOpen} user={user}
                             onShowLogin={() => setShowFullLogin(true)}
-                            onSelectItem={(id) => { setSelectedItemId(id); setView('detail'); scrollToTop(); }}
+                            onSelectItem={(id) => {
+                                originViewRef.current = 'gallery';
+                                const currentScrollY = window.scrollY;
+                                if (currentScrollY > 0) {
+                                    pendingGalleryScrollRef.current = currentScrollY;
+                                }
+                                setSelectedItemId(id);
+                                setView('detail');
+                            }}
                             onOpenShop={() => { setView('shop'); scrollToTop(); }}
                             darkMode={darkMode}
                             onOpenMenu={onOpenMenu}
@@ -229,6 +294,11 @@ const AppRouter = ({
                         toggleTheme={toggleTheme}
                         setHeaderProps={setHeaderProps}
                         onOpenProductDetail={(product, context = {}) => {
+                            originViewRef.current = 'shop';
+                            const currentScrollY = window.scrollY;
+                            if (currentScrollY > 0) {
+                                shopScrollYRef.current = currentScrollY;
+                            }
                             setSelectedAffiliateProductId(product.id);
                             setSelectedAffiliateProductContext({
                                 source: context.source || 'shop_grid',
@@ -236,7 +306,6 @@ const AppRouter = ({
                                 parentFurnitureName: context.parentFurnitureName || null
                             });
                             setView('shop-detail');
-                            scrollToTop();
                         }}
                     />
                 </Suspense>
@@ -250,10 +319,16 @@ const AppRouter = ({
                         darkMode={darkMode}
                         affiliateContext={selectedAffiliateProductContext}
                         onBack={() => {
+                            if (selectedAffiliateProductContext?.source === 'gallery_detail' && selectedAffiliateProductContext?.parentFurnitureId) {
+                                setSelectedItemId(selectedAffiliateProductContext.parentFurnitureId);
+                                setSelectedAffiliateProductId(null);
+                                setSelectedAffiliateProductContext(null);
+                                setView('detail');
+                                return;
+                            }
                             setView('shop');
                             setSelectedAffiliateProductId(null);
                             setSelectedAffiliateProductContext(null);
-                            scrollToTop();
                         }}
                     />
                 </Suspense>
@@ -275,6 +350,22 @@ const AppRouter = ({
                             isCatalogResolving={!isProductCatalogResolved}
                             user={user}
                             onBack={() => { 
+                                if (originViewRef.current === 'home') {
+                                    const homeY = homeScrollYRef.current;
+                                    setView('home'); 
+                                    setSelectedItemId(null);
+                                    if (typeof homeY === 'number' && homeY > 0) {
+                                        const restoreHome = () => scrollToTarget(homeY, { immediate: true, duration: 0 });
+                                        requestAnimationFrame(() => {
+                                            restoreHome();
+                                            requestAnimationFrame(restoreHome);
+                                        });
+                                        setTimeout(restoreHome, 60);
+                                        setTimeout(restoreHome, 180);
+                                    }
+                                    return;
+                                }
+
                                 // Restore sub-view before returning
                                 if (persistentGalleryState) {
                                     setHeaderProps(prev => ({
@@ -282,6 +373,11 @@ const AppRouter = ({
                                         activeCollection: persistentGalleryState.activeCollection,
                                         filter: persistentGalleryState.filter
                                     }));
+                                }
+                                // Programmer la restauration du scroll vers la position sauvegardée
+                                const savedScrollY = pendingGalleryScrollRef.current ?? persistentGalleryState?.scrollY;
+                                if (typeof savedScrollY === 'number' && savedScrollY > 0) {
+                                    pendingGalleryScrollRef.current = savedScrollY;
                                 }
                                 setView('gallery'); 
                                 setSelectedItemId(null); 
