@@ -77,7 +77,15 @@ const RevenueChart = ({
     }, [data, timeFilter]);
 
     const YTICKS = 4;
-    const mg = useMemo(() => ({ top: 16, right: 20, bottom: 36, left: 60 }), []);
+    const mg = useMemo(() => {
+        const isSmall = dims.w < 420;
+        return {
+            top: 16,
+            right: isSmall ? 10 : 20,
+            bottom: 36,
+            left: isSmall ? 44 : 60
+        };
+    }, [dims.w]);
     const cW = Math.max(10, dims.w - mg.left - mg.right);
     const cH = Math.max(10, dims.h - mg.top - mg.bottom);
 
@@ -116,8 +124,29 @@ const RevenueChart = ({
     })), [maxV, cH, mg]);
 
     const xLabels = useMemo(() => {
-        return pts.filter(p => !!p.axisLabel);
-    }, [pts]);
+        if (!pts.length) return [];
+        const candidates = pts.filter(p => !!p.axisLabel);
+        if (candidates.length <= 2) return candidates;
+
+        const minSpacing = dims.w < 360 ? 64 : dims.w < 480 ? 52 : 44;
+        const visible = [candidates[0]];
+        
+        for (let i = 1; i < candidates.length; i++) {
+            const pt = candidates[i];
+            const isLast = (i === candidates.length - 1);
+            const prev = visible[visible.length - 1];
+
+            if (isLast) {
+                if (pt.x - prev.x < minSpacing && visible.length > 1) {
+                    visible.pop();
+                }
+                visible.push(pt);
+            } else if (pt.x - prev.x >= minSpacing) {
+                visible.push(pt);
+            }
+        }
+        return visible;
+    }, [pts, dims.w]);
 
     const handlePointerMove = (e) => {
         if (!pts.length) return;
@@ -152,15 +181,16 @@ const RevenueChart = ({
 
     return (
         <div className="w-full select-none">
-            {/* TOP BAR / INTERACTIVE HEADER - STABLE LAYOUT WITHOUT SHIFTS */}
-            <div className="flex justify-between items-start gap-4 mb-6">
-                <div>
-                    <div className="flex items-center gap-2 mb-2">
-                        <span className={`text-[10px] font-black uppercase tracking-[0.2em] ${darkMode ? 'text-white/40' : 'text-stone-400'}`}>
+            {/* TOP BAR / INTERACTIVE HEADER - RESPONSIVE CLEAN APPLE FINANCIAL LAYOUT */}
+            <div className="mb-5">
+                {/* Row 1: Title & Period Switcher on one clean horizontal line */}
+                <div className="flex items-center justify-between gap-2 mb-2">
+                    <div className="flex items-center gap-2 min-w-0">
+                        <span className={`text-[10px] font-black uppercase tracking-[0.18em] shrink-0 ${darkMode ? 'text-white/40' : 'text-stone-400'}`}>
                             Évolution du CA
                         </span>
                         {filterLabel && (
-                            <span className={`text-[9px] font-bold uppercase tracking-wider ${
+                            <span className={`hidden sm:inline-block text-[9px] font-bold uppercase tracking-wider ${
                                 darkMode ? 'text-white/30' : 'text-stone-400'
                             }`}>
                                 {filterLabel}
@@ -168,60 +198,60 @@ const RevenueChart = ({
                         )}
                     </div>
 
-                    {/* Normalized font-mono typography from graph (Apple Stock style) */}
-                    <div className="flex items-baseline gap-2">
-                        <h2 className={`text-4xl lg:text-5xl font-black font-mono tracking-tight ${darkMode ? 'text-white' : 'text-stone-900'}`}>
-                            {displayAmount.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} <span className="text-2xl lg:text-3xl text-stone-500 font-normal">€</span>
-                        </h2>
-                    </div>
-
-                    {/* Fixed-height subtitle row: colored text, refined typography (no pill background) */}
-                    <div className="h-5 flex items-center mt-1">
-                        {activePt ? (
-                            <p className="text-xs font-semibold tracking-wide flex items-center gap-3">
-                                <span className={darkMode ? 'text-sky-400' : 'text-blue-600'}>
-                                    {activePt.fullDate}
-                                </span>
-                                <span className={darkMode ? 'text-emerald-400' : 'text-emerald-600'}>
-                                    {activePt.orderCount} commande{activePt.orderCount > 1 ? 's' : ''}
-                                </span>
-                            </p>
-                        ) : (
-                            <p className={`text-xs font-semibold tracking-wide flex items-center gap-1.5 ${
-                                darkMode ? 'text-emerald-400' : 'text-emerald-600'
-                            }`}>
-                                <TrendingUp size={13} className="shrink-0" />
-                                <span>{periodOrders} commande{periodOrders > 1 ? 's' : ''} au total</span>
-                            </p>
-                        )}
-                    </div>
+                    {/* PERIOD BUTTONS (7J | 1M | 1A | MAX) - COMPACT & RESPONSIVE */}
+                    {setTimeFilter && (
+                        <div className={`flex gap-0.5 sm:gap-1 p-0.5 sm:p-1 rounded-xl shrink-0 border ${
+                            darkMode ? 'bg-white/[0.03] border-white/10' : 'bg-stone-100 border-stone-200'
+                        }`}>
+                            {[
+                                { id: '7days', label: '7J' },
+                                { id: '1month', label: '1M' },
+                                { id: '1year', label: '1A' },
+                                { id: 'alltime', label: 'MAX' }
+                            ].map(f => (
+                                <button
+                                    key={f.id}
+                                    onClick={() => setTimeFilter(f.id)}
+                                    className={`px-2 sm:px-3 py-1 rounded-lg text-[9px] sm:text-[10px] font-black uppercase transition-all duration-200 ${
+                                        timeFilter === f.id
+                                            ? (darkMode ? 'bg-white text-stone-900 shadow-md font-bold' : 'bg-white text-stone-900 shadow-sm font-bold')
+                                            : (darkMode ? 'text-white/40 hover:text-white' : 'text-stone-400 hover:text-stone-600')
+                                    }`}
+                                >
+                                    {f.label}
+                                </button>
+                            ))}
+                        </div>
+                    )}
                 </div>
 
-                {/* PERIOD BUTTONS ONLY (Replacing Courbe/Bourse) */}
-                {setTimeFilter && (
-                    <div className={`flex gap-1 p-1 rounded-xl shrink-0 border ${
-                        darkMode ? 'bg-white/[0.03] border-white/10' : 'bg-stone-100 border-stone-200'
-                    }`}>
-                        {[
-                            { id: '7days', label: '7J' },
-                            { id: '1month', label: '1M' },
-                            { id: '1year', label: '1A' },
-                            { id: 'alltime', label: 'MAX' }
-                        ].map(f => (
-                            <button
-                                key={f.id}
-                                onClick={() => setTimeFilter(f.id)}
-                                className={`px-3 py-1 rounded-lg text-[10px] font-black uppercase transition-all duration-200 ${
-                                    timeFilter === f.id
-                                        ? (darkMode ? 'bg-white text-stone-900 shadow-md font-bold' : 'bg-white text-stone-900 shadow-sm font-bold')
-                                        : (darkMode ? 'text-white/40 hover:text-white' : 'text-stone-400 hover:text-stone-600')
-                                }`}
-                            >
-                                {f.label}
-                            </button>
-                        ))}
-                    </div>
-                )}
+                {/* Row 2: Full-width Amount readout - NEVER WRAPS */}
+                <div className="flex items-baseline gap-2">
+                    <h2 className={`text-3xl sm:text-4xl lg:text-5xl font-black font-mono tracking-tight whitespace-nowrap ${darkMode ? 'text-white' : 'text-stone-900'}`}>
+                        {displayAmount.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} <span className="text-xl sm:text-2xl lg:text-3xl text-stone-500 font-normal">€</span>
+                    </h2>
+                </div>
+
+                {/* Row 3: Fixed-height subtitle row */}
+                <div className="h-5 flex items-center mt-1">
+                    {activePt ? (
+                        <p className="text-xs font-semibold tracking-wide flex items-center gap-3">
+                            <span className={darkMode ? 'text-sky-400' : 'text-blue-600'}>
+                                {activePt.fullDate}
+                            </span>
+                            <span className={darkMode ? 'text-emerald-400' : 'text-emerald-600'}>
+                                {activePt.orderCount} commande{activePt.orderCount > 1 ? 's' : ''}
+                            </span>
+                        </p>
+                    ) : (
+                        <p className={`text-xs font-semibold tracking-wide flex items-center gap-1.5 ${
+                            darkMode ? 'text-emerald-400' : 'text-emerald-600'
+                        }`}>
+                            <TrendingUp size={13} className="shrink-0" />
+                            <span>{periodOrders} commande{periodOrders > 1 ? 's' : ''} au total</span>
+                        </p>
+                    )}
+                </div>
             </div>
 
             {/* CHART SVG CONTAINER */}
@@ -260,14 +290,14 @@ const RevenueChart = ({
                                 x2={mg.left + cW} 
                                 y2={tk.y}
                                 stroke={darkMode ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)'} 
-                                strokeWidth={1}
+                                strokeWidth={1} 
                                 strokeDasharray={i === 0 ? '' : '3 4'} 
                             />
                             <text 
-                                x={mg.left - 10} 
+                                x={mg.left - 8} 
                                 y={tk.y + 3.5} 
                                 textAnchor="end"
-                                fontSize={10} 
+                                fontSize={dims.w < 400 ? 9 : 10} 
                                 fontFamily="ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,sans-serif"
                                 fontWeight="600" 
                                 fill={darkMode ? 'rgba(255,255,255,0.32)' : 'rgba(0,0,0,0.38)'}
@@ -294,11 +324,11 @@ const RevenueChart = ({
                             x={pt.x} 
                             y={mg.top + cH + 20} 
                             textAnchor="middle"
-                            fontSize={10} 
+                            fontSize={dims.w < 400 ? 9 : 10} 
                             fontFamily="ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,sans-serif"
                             fontWeight="600" 
                             fill={darkMode ? 'rgba(255,255,255,0.45)' : 'rgba(0,0,0,0.45)'}
-                            style={{ textTransform: 'uppercase', letterSpacing: '0.04em' }}
+                            style={{ textTransform: 'uppercase', letterSpacing: dims.w < 400 ? '0.02em' : '0.04em' }}
                         >
                             {pt.axisLabel}
                         </text>
@@ -818,9 +848,9 @@ const AdminDashboard = ({ user, canUseDangerousAdminActions = false, darkMode = 
         <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 pb-20">
 
             {/* MODULE 1: KPI ROW (3 Cards) */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-6">
                 {/* CA */}
-                <div className={`p-8 rounded-[32px] ${baseCard}`}>
+                <div className={`p-5 sm:p-8 rounded-[28px] sm:rounded-[32px] ${baseCard}`}>
                     <p className={`text-[10px] uppercase font-black tracking-[0.2em] mb-4 ${textMuted}`}>Chiffre d'Affaires</p>
                     <h2 className={`text-4xl lg:text-5xl font-black font-mono tracking-tight mb-2 ${textBase}`}>
                         {stats.totalRevenue.toLocaleString('fr-FR')} <span className="text-2xl text-stone-500 font-normal">€</span>
@@ -831,7 +861,7 @@ const AdminDashboard = ({ user, canUseDangerousAdminActions = false, darkMode = 
                 </div>
 
                 {/* COMMANDES */}
-                <div className={`p-8 rounded-[32px] ${baseCard}`}>
+                <div className={`p-5 sm:p-8 rounded-[28px] sm:rounded-[32px] ${baseCard}`}>
                     <p className={`text-[10px] uppercase font-black tracking-[0.2em] mb-4 ${textMuted}`}>Commandes</p>
                     <h2 className={`text-4xl lg:text-5xl font-black font-mono tracking-tight mb-2 ${textBase}`}>
                         {stats.totalOrders}
@@ -842,7 +872,7 @@ const AdminDashboard = ({ user, canUseDangerousAdminActions = false, darkMode = 
                 </div>
 
                 {/* CLIENTS */}
-                <div className={`p-8 rounded-[32px] ${baseCard} relative`}>
+                <div className={`p-5 sm:p-8 rounded-[28px] sm:rounded-[32px] ${baseCard} relative`}>
                     <p className={`text-[10px] uppercase font-black tracking-[0.2em] mb-4 ${textMuted}`}>Clients Inscrits</p>
                     <h2 className={`text-4xl lg:text-5xl font-black font-mono tracking-tight mb-2 ${textBase}`}>
                         {stats.registeredUsers}
@@ -860,7 +890,7 @@ const AdminDashboard = ({ user, canUseDangerousAdminActions = false, darkMode = 
                         <span>Exporter CSV</span>
                     </button>
                     {/* Catalog value strictly positioned on top right of clients card as a tiny metric */}
-                    <div className="absolute top-8 right-8 text-right">
+                    <div className="absolute top-5 right-5 sm:top-8 sm:right-8 text-right">
                         <p className={`text-[8px] uppercase font-black tracking-widest ${textMuted}`}>Valeur Catalogue</p>
                         <p className={`text-xs font-black font-mono ${darkMode ? 'text-stone-300' : 'text-stone-600'}`}>{stats.totalStockValue} €</p>
                     </div>
@@ -868,8 +898,8 @@ const AdminDashboard = ({ user, canUseDangerousAdminActions = false, darkMode = 
             </div>
 
             {/* MODULE 2: GRAPHICS (CA + STATUS) */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                <div className={`lg:col-span-2 p-6 sm:p-8 rounded-[32px] ${baseCard}`}>
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
+                <div className={`lg:col-span-2 p-4 sm:p-8 rounded-[28px] sm:rounded-[32px] ${baseCard}`}>
                     <RevenueChart 
                         data={chartData} 
                         darkMode={darkMode} 
