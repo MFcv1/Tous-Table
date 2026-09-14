@@ -47,9 +47,9 @@ Sans ce bloc + màj de ce fichier → **phase non close**.
 | Branche git | `feature/live-catalog-stock-ab` |
 | Env de travail | Sandbox `sandboxtat` · `.env.local` · `npm run dev` |
 | Prod | **Interdite** sans OK explicite user |
-| Phase courante | **TESTS sandbox** (user) |
-| Dernière phase close | **DEPLOY-SB** (hosting + functions; getUserStats fail isolé) |
-| Prochaine phase | Recettes user → si OK, commit / merge (user) — **pas de prod** |
+| Phase courante | **PRODUCTION EN LIGNE** (Post-deploy) |
+| Dernière phase close | **DEPLOY-PROD** (preflight + functions 34/34 + hosting prod + push main) |
+| Prochaine phase | Monitoring & Smoke tests prod |
 
 ---
 
@@ -67,8 +67,8 @@ Légende : `[ ]` todo · `[~]` en cours · `[x]` done · `[-]` skip justifié
 | 4 | Optionnel `stockReserved` deferred | `[x]` | `stockReserved: true` sur commande deferred |
 | 5 | Build final + note coûts + journal plan | `[x]` | `npm run build` OK ; note ANALYTICS_RELIABILITY ; journal plan |
 | DEPLOY-SB | Deploy functions sandbox (E2E) | `[x]` | Hosting OK · Functions quasi toutes OK (getUserStats build fail hors scope) · secrets placeholders sandbox |
-| MERGE | Merge → main | `[ ]` | **Uniquement si user OK** |
-| DEPLOY-PROD | Deploy prod | `[ ]` | **Interdit sans phrase claire user** |
+| MERGE | Merge → main | `[x]` | Fusion effectuée et pushée sur origin/main |
+| DEPLOY-PROD | Deploy prod | `[x]` | Preflight prod OK (0 fail) · Functions 34/34 OK · Hosting OK |
 
 ---
 
