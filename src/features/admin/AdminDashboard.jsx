@@ -11,119 +11,401 @@ import { exportRowsToCsv } from '../../utils/csvExport';
 
 // ─── CUSTOM SVG CHARTS ───
 
-const RevenueChart = ({ data, darkMode }) => {
+// Format Y-axis tick value
+const fmtYTick = (v) => {
+    if (v === 0) return '0 €';
+    if (v >= 1000) return `${(v / 1000).toLocaleString('fr-FR', { maximumFractionDigits: 1 })}k€`;
+    return `${v} €`;
+};
+
+// Round max up to a clean, readable financial grid scale
+const niceMax = (raw) => {
+    if (!raw || raw <= 0) return 500;
+    const mag = Math.pow(10, Math.floor(Math.log10(raw)));
+    const n = raw / mag;
+    let nice;
+    if (n <= 1) nice = 1;
+    else if (n <= 1.25) nice = 1.25;
+    else if (n <= 1.5) nice = 1.5;
+    else if (n <= 2) nice = 2;
+    else if (n <= 2.5) nice = 2.5;
+    else if (n <= 5) nice = 5;
+    else nice = 10;
+    return nice * mag;
+};
+
+// ─── APPLE STOCK LINE CHART (Asset-Design Quality) ───
+const straightLinePath = (pts) => {
+    if (!pts.length) return '';
+    return pts.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(' ');
+};
+
+const RevenueChart = ({ 
+    data, 
+    darkMode, 
+    timeFilter, 
+    setTimeFilter, 
+    filterLabel 
+}) => {
     const containerRef = useRef(null);
-    const [dims, setDims] = useState({ w: 600, h: 180 });
+    const [dims, setDims] = useState({ w: 600, h: 250 });
     const [activeIdx, setActiveIdx] = useState(null);
+    const [animated, setAnimated] = useState(false);
+    const [pathLen, setPathLen] = useState(3000);
+    const pathRef = useRef(null);
+    const rafRef = useRef(null);
 
     useEffect(() => {
         const el = containerRef.current;
         if (!el) return;
-        const ro = new ResizeObserver(([entry]) => {
-            if (entry.contentRect.width > 0) {
-                setDims({ w: entry.contentRect.width, h: 180 });
+        const ro = new ResizeObserver(([e]) => {
+            if (e.contentRect.width > 0) {
+                setDims({ w: e.contentRect.width, h: 250 });
             }
         });
         ro.observe(el);
         return () => ro.disconnect();
     }, []);
 
-    const values = useMemo(() => data.map(d => d.value), [data]);
-    const maxVal = Math.max(...values, 100);
-    const margin = { top: 20, right: 10, bottom: 20, left: 10 };
-    const chartW = dims.w - margin.left - margin.right;
-    const chartH = dims.h - margin.top - margin.bottom;
+    useEffect(() => {
+        setAnimated(false);
+        if (rafRef.current) cancelAnimationFrame(rafRef.current);
+        rafRef.current = requestAnimationFrame(() => {
+            rafRef.current = requestAnimationFrame(() => setAnimated(true));
+        });
+        return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); };
+    }, [data, timeFilter]);
 
-    const points = useMemo(() => {
-        if (data.length === 0) return '';
-        const step = chartW / Math.max(1, data.length - 1);
+    const YTICKS = 4;
+    const mg = useMemo(() => ({ top: 16, right: 20, bottom: 36, left: 60 }), []);
+    const cW = Math.max(10, dims.w - mg.left - mg.right);
+    const cH = Math.max(10, dims.h - mg.top - mg.bottom);
+
+    const periodTotal = useMemo(() => data.reduce((acc, d) => acc + (d.value || 0), 0), [data]);
+    const periodOrders = useMemo(() => data.reduce((acc, d) => acc + (d.orderCount || 0), 0), [data]);
+
+    const rawMax = useMemo(() => Math.max(...data.map(d => d.value), 0), [data]);
+    const maxV = useMemo(() => niceMax(rawMax), [rawMax]);
+
+    const pts = useMemo(() => {
+        if (!data.length) return [];
+        const n = data.length;
         return data.map((d, i) => {
-            const x = margin.left + i * step;
-            const y = margin.top + chartH - ((d.value / maxVal) * chartH);
-            return `${x},${y}`;
-        }).join(' L ');
-    }, [data, chartW, chartH, maxVal, margin]);
+            const x = mg.left + (n > 1 ? (i / (n - 1)) * cW : cW / 2);
+            const y = mg.top + cH - ((d.value / maxV) * cH);
+            return {
+                ...d,
+                x,
+                y,
+                idx: i
+            };
+        });
+    }, [data, cW, cH, maxV, mg]);
 
-    const polygonPoints = useMemo(() => {
-        if (!points) return '';
-        const firstX = margin.left;
-        const lastX = margin.left + chartW;
-        const baseY = margin.top + chartH;
-        return `M ${firstX},${baseY} L ${points} L ${lastX},${baseY} Z`;
-    }, [points, chartW, chartH, margin]);
+    const linePath = useMemo(() => straightLinePath(pts), [pts]);
+
+    const areaPath = useMemo(() => {
+        if (!pts.length) return '';
+        const by = mg.top + cH;
+        return `${linePath} L ${pts[pts.length - 1].x.toFixed(1)},${by} L ${pts[0].x.toFixed(1)},${by} Z`;
+    }, [linePath, pts, mg, cH]);
+
+    const yTicks = useMemo(() => Array.from({ length: YTICKS + 1 }, (_, i) => ({
+        val: (maxV / YTICKS) * i,
+        y: mg.top + cH - (i / YTICKS) * cH,
+    })), [maxV, cH, mg]);
+
+    const xLabels = useMemo(() => {
+        return pts.filter(p => !!p.axisLabel);
+    }, [pts]);
 
     const handlePointerMove = (e) => {
+        if (!pts.length) return;
         const rect = e.currentTarget.getBoundingClientRect();
-        const x = e.clientX - rect.left - margin.left;
-        const step = chartW / Math.max(1, data.length - 1);
-        let idx = Math.round(x / step);
-        idx = Math.max(0, Math.min(data.length - 1, idx));
-        setActiveIdx(idx);
+        const clientX = e.clientX - rect.left;
+        
+        let closestIdx = 0;
+        let minDist = Infinity;
+        pts.forEach((p, i) => {
+            const d = Math.abs(p.x - clientX);
+            if (d < minDist) {
+                minDist = d;
+                closestIdx = i;
+            }
+        });
+        setActiveIdx(closestIdx);
     };
 
-    return (
-        <div ref={containerRef} className="w-full h-[180px] relative select-none group"
-             onPointerMove={handlePointerMove}
-             onPointerLeave={() => setActiveIdx(null)}>
-            <svg width={dims.w} height={dims.h} className="block overflow-visible">
-                <defs>
-                    <linearGradient id="areaGradient" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor="#3B82F6" stopOpacity="0.15" />
-                        <stop offset="100%" stopColor="#3B82F6" stopOpacity="0" />
-                    </linearGradient>
-                    <pattern id="diagonalHatch" patternUnits="userSpaceOnUse" width="4" height="4">
-                        <path d="M-1,1 l2,-2 M0,4 l4,-4 M3,5 l2,-2" 
-                              style={{ stroke: darkMode ? 'rgba(59, 130, 246, 0.15)' : 'rgba(59, 130, 246, 0.05)', strokeWidth: 1 }} />
-                    </pattern>
-                </defs>
-                
-                <line x1={margin.left} y1={margin.top + chartH} x2={margin.left + chartW} y2={margin.top + chartH} 
-                      stroke={darkMode ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)'} strokeWidth="1" />
-                      
-                <line x1={margin.left} y1={margin.top} x2={margin.left + chartW} y2={margin.top} 
-                      stroke={darkMode ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.02)'} strokeWidth="1" strokeDasharray="4 4" />
-                
-                {data.length > 0 && (
-                    <>
-                        <path d={`M ${points.split(' L ')[0]} L ${points}`} 
-                              fill="none" stroke="#3B82F6" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                        
-                        <path d={polygonPoints} fill="url(#areaGradient)" />
-                        <path d={polygonPoints} fill="url(#diagonalHatch)" />
+    useEffect(() => {
+        if (pathRef.current) {
+            const l = pathRef.current.getTotalLength();
+            if (l > 0) setPathLen(l);
+        }
+    }, [linePath, dims]);
 
-                        {activeIdx !== null && (
-                            <g>
-                                <line 
-                                    x1={margin.left + activeIdx * (chartW / Math.max(1, data.length - 1))}
-                                    y1={margin.top}
-                                    x2={margin.left + activeIdx * (chartW / Math.max(1, data.length - 1))}
-                                    y2={margin.top + chartH}
-                                    stroke={darkMode ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.1)'}
-                                    strokeDasharray="4 4"
-                                />
-                                <circle 
-                                    cx={margin.left + activeIdx * (chartW / Math.max(1, data.length - 1))}
-                                    cy={margin.top + chartH - ((data[activeIdx].value / maxVal) * chartH)}
-                                    r="4"
-                                    fill={darkMode ? '#0a0a0a' : '#ffffff'}
-                                    stroke="#3B82F6"
-                                    strokeWidth="2"
-                                />
-                            </g>
+    const activePt = activeIdx !== null && pts[activeIdx] ? pts[activeIdx] : null;
+    const displayAmount = activePt ? activePt.value : periodTotal;
+
+    const baseStrokeColor = '#3B82F6';
+    const gradId = `appleRevGrad_${darkMode ? 'dark' : 'light'}`;
+    const glowFilterId = `appleRevGlow_${darkMode ? 'dark' : 'light'}`;
+
+    return (
+        <div className="w-full select-none">
+            {/* TOP BAR / INTERACTIVE HEADER - STABLE LAYOUT WITHOUT SHIFTS */}
+            <div className="flex justify-between items-start gap-4 mb-6">
+                <div>
+                    <div className="flex items-center gap-2 mb-2">
+                        <span className={`text-[10px] font-black uppercase tracking-[0.2em] ${darkMode ? 'text-white/40' : 'text-stone-400'}`}>
+                            Évolution du CA
+                        </span>
+                        {filterLabel && (
+                            <span className={`text-[9px] font-bold uppercase tracking-wider ${
+                                darkMode ? 'text-white/30' : 'text-stone-400'
+                            }`}>
+                                {filterLabel}
+                            </span>
                         )}
-                    </>
-                )}
-            </svg>
-            
-            {activeIdx !== null && data[activeIdx] && (
-                <div 
-                    className={`absolute top-0 transform -translate-x-1/2 -translate-y-[110%] pointer-events-none transition-all duration-75 px-3 py-1.5 rounded-lg border shadow-xl ${darkMode ? 'bg-[#1e1e1e] border-white/10 text-white' : 'bg-white border-stone-200 text-stone-900'}`}
-                    style={{ left: margin.left + activeIdx * (chartW / Math.max(1, data.length - 1)) }}
-                >
-                    <p className="text-[9px] uppercase tracking-wider opacity-50 mb-0.5">{data[activeIdx].label}</p>
-                    <p className="text-xs font-black">{data[activeIdx].value} €</p>
+                    </div>
+
+                    {/* Normalized font-mono typography from graph (Apple Stock style) */}
+                    <div className="flex items-baseline gap-2">
+                        <h2 className={`text-4xl lg:text-5xl font-black font-mono tracking-tight ${darkMode ? 'text-white' : 'text-stone-900'}`}>
+                            {displayAmount.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} <span className="text-2xl lg:text-3xl text-stone-500 font-normal">€</span>
+                        </h2>
+                    </div>
+
+                    {/* Fixed-height subtitle row: colored text, refined typography (no pill background) */}
+                    <div className="h-5 flex items-center mt-1">
+                        {activePt ? (
+                            <p className="text-xs font-semibold tracking-wide flex items-center gap-3">
+                                <span className={darkMode ? 'text-sky-400' : 'text-blue-600'}>
+                                    {activePt.fullDate}
+                                </span>
+                                <span className={darkMode ? 'text-emerald-400' : 'text-emerald-600'}>
+                                    {activePt.orderCount} commande{activePt.orderCount > 1 ? 's' : ''}
+                                </span>
+                            </p>
+                        ) : (
+                            <p className={`text-xs font-semibold tracking-wide flex items-center gap-1.5 ${
+                                darkMode ? 'text-emerald-400' : 'text-emerald-600'
+                            }`}>
+                                <TrendingUp size={13} className="shrink-0" />
+                                <span>{periodOrders} commande{periodOrders > 1 ? 's' : ''} au total</span>
+                            </p>
+                        )}
+                    </div>
                 </div>
-            )}
+
+                {/* PERIOD BUTTONS ONLY (Replacing Courbe/Bourse) */}
+                {setTimeFilter && (
+                    <div className={`flex gap-1 p-1 rounded-xl shrink-0 border ${
+                        darkMode ? 'bg-white/[0.03] border-white/10' : 'bg-stone-100 border-stone-200'
+                    }`}>
+                        {[
+                            { id: '7days', label: '7J' },
+                            { id: '1month', label: '1M' },
+                            { id: '1year', label: '1A' },
+                            { id: 'alltime', label: 'MAX' }
+                        ].map(f => (
+                            <button
+                                key={f.id}
+                                onClick={() => setTimeFilter(f.id)}
+                                className={`px-3 py-1 rounded-lg text-[10px] font-black uppercase transition-all duration-200 ${
+                                    timeFilter === f.id
+                                        ? (darkMode ? 'bg-white text-stone-900 shadow-md font-bold' : 'bg-white text-stone-900 shadow-sm font-bold')
+                                        : (darkMode ? 'text-white/40 hover:text-white' : 'text-stone-400 hover:text-stone-600')
+                                }`}
+                            >
+                                {f.label}
+                            </button>
+                        ))}
+                    </div>
+                )}
+            </div>
+
+            {/* CHART SVG CONTAINER */}
+            <div 
+                ref={containerRef} 
+                className="w-full relative select-none cursor-crosshair group"
+                style={{ height: dims.h }}
+                onPointerMove={handlePointerMove}
+                onPointerLeave={() => setActiveIdx(null)}
+            >
+                <svg width={dims.w} height={dims.h} className="block overflow-visible">
+                    <defs>
+                        {/* Luminous Apple area fill gradient */}
+                        <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="0%" stopColor={baseStrokeColor} stopOpacity={darkMode ? 0.32 : 0.18} />
+                            <stop offset="60%" stopColor={baseStrokeColor} stopOpacity={darkMode ? 0.08 : 0.03} />
+                            <stop offset="100%" stopColor={baseStrokeColor} stopOpacity="0" />
+                        </linearGradient>
+
+                        {/* Drop shadow / subtle glow on curve */}
+                        <filter id={glowFilterId} x="-20%" y="-20%" width="140%" height="140%">
+                            <feDropShadow dx="0" dy="2" stdDeviation="3" floodColor={baseStrokeColor} floodOpacity={darkMode ? 0.45 : 0.25} />
+                        </filter>
+
+                        <clipPath id="rcDataAreaClip">
+                            <rect x={mg.left - 2} y={mg.top - 4} width={cW + 4} height={cH + 8} />
+                        </clipPath>
+                    </defs>
+
+                    {/* Y-axis horizontal grid lines & labels */}
+                    {yTicks.map((tk, i) => (
+                        <g key={i}>
+                            <line 
+                                x1={mg.left} 
+                                y1={tk.y} 
+                                x2={mg.left + cW} 
+                                y2={tk.y}
+                                stroke={darkMode ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)'} 
+                                strokeWidth={1}
+                                strokeDasharray={i === 0 ? '' : '3 4'} 
+                            />
+                            <text 
+                                x={mg.left - 10} 
+                                y={tk.y + 3.5} 
+                                textAnchor="end"
+                                fontSize={10} 
+                                fontFamily="ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,sans-serif"
+                                fontWeight="600" 
+                                fill={darkMode ? 'rgba(255,255,255,0.32)' : 'rgba(0,0,0,0.38)'}
+                            >
+                                {fmtYTick(tk.val)}
+                            </text>
+                        </g>
+                    ))}
+
+                    {/* X-axis baseline */}
+                    <line 
+                        x1={mg.left} 
+                        y1={mg.top + cH} 
+                        x2={mg.left + cW} 
+                        y2={mg.top + cH}
+                        stroke={darkMode ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.1)'} 
+                        strokeWidth={1} 
+                    />
+
+                    {/* X-axis milestone labels (non-colliding) */}
+                    {xLabels.map((pt, i) => (
+                        <text 
+                            key={i} 
+                            x={pt.x} 
+                            y={mg.top + cH + 20} 
+                            textAnchor="middle"
+                            fontSize={10} 
+                            fontFamily="ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,sans-serif"
+                            fontWeight="600" 
+                            fill={darkMode ? 'rgba(255,255,255,0.45)' : 'rgba(0,0,0,0.45)'}
+                            style={{ textTransform: 'uppercase', letterSpacing: '0.04em' }}
+                        >
+                            {pt.axisLabel}
+                        </text>
+                    ))}
+
+                    {/* Data Paths: Area + Animated Stroke */}
+                    {pts.length > 0 && (
+                        <g clipPath="url(#rcDataAreaClip)">
+                            <path d={areaPath} fill={`url(#${gradId})`} />
+                            <path 
+                                ref={pathRef} 
+                                d={linePath} 
+                                fill="none"
+                                stroke={baseStrokeColor} 
+                                strokeWidth="2.5"
+                                strokeLinecap="round" 
+                                strokeLinejoin="round"
+                                filter={`url(#${glowFilterId})`}
+                                style={{
+                                    strokeDasharray: pathLen,
+                                    strokeDashoffset: animated ? 0 : pathLen,
+                                    transition: animated ? 'stroke-dashoffset 0.8s cubic-bezier(0.16, 1, 0.3, 1)' : 'none',
+                                }} 
+                            />
+                        </g>
+                    )}
+
+                    {/* Hover Crosshair & Clean Apple Dot */}
+                    {activePt && (
+                        <g>
+                            {/* Vertical guideline */}
+                            <line 
+                                x1={activePt.x} 
+                                y1={mg.top} 
+                                x2={activePt.x} 
+                                y2={mg.top + cH}
+                                stroke={darkMode ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.15)'}
+                                strokeWidth={1} 
+                                strokeDasharray="3 3" 
+                            />
+
+                            {/* Clean point on vertex: no pulsing AI halos */}
+                            <circle 
+                                cx={activePt.x} 
+                                cy={activePt.y} 
+                                r={4.5}
+                                fill={baseStrokeColor}
+                                stroke="#ffffff" 
+                                strokeWidth={2}
+                            />
+                        </g>
+                    )}
+                </svg>
+
+                {/* FLOATING DARK GLASS TOOLTIP */}
+                {activePt && (
+                    <div 
+                        className="absolute pointer-events-none z-20 transition-all duration-75"
+                        style={{
+                            left: Math.max(mg.left + 50, Math.min(dims.w - 60, activePt.x)),
+                            top: Math.max(8, activePt.y - 12),
+                            transform: 'translate(-50%, -100%)',
+                        }}
+                    >
+                        <div className={`px-3 py-2 rounded-2xl border shadow-2xl backdrop-blur-xl whitespace-nowrap text-center ${
+                            darkMode 
+                                ? 'bg-[#1C1C1E]/95 border-white/10 text-white shadow-black/60' 
+                                : 'bg-white/95 border-stone-200 text-stone-900 shadow-stone-300/50'
+                        }`}>
+                            <p className={`text-[9px] uppercase tracking-[0.14em] font-bold mb-0.5 ${
+                                darkMode ? 'text-white/45' : 'text-stone-400'
+                            }`}>
+                                {activePt.fullDate || activePt.label}
+                            </p>
+                            <p className="text-sm font-black font-mono tracking-tight">
+                                {activePt.value === 0 ? (
+                                    <span className={darkMode ? 'text-white/30' : 'text-stone-300'}>0,00 €</span>
+                                ) : (
+                                    `${activePt.value.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`
+                                )}
+                            </p>
+                            {activePt.orderCount > 0 && (
+                                <p className={`text-[10px] font-bold mt-0.5 ${darkMode ? 'text-emerald-400' : 'text-emerald-600'}`}>
+                                    {activePt.orderCount} commande{activePt.orderCount > 1 ? 's' : ''}
+                                </p>
+                            )}
+                        </div>
+                        {/* Downward triangle arrow */}
+                        <div className="flex justify-center -mt-px">
+                            <div className={`w-2.5 h-2.5 rotate-45 border-r border-b ${
+                                darkMode ? 'bg-[#1C1C1E]/95 border-white/10' : 'bg-white/95 border-stone-200'
+                            }`} />
+                        </div>
+                    </div>
+                )}
+
+                {/* EMPTY STATE */}
+                {!pts.length && (
+                    <div className="absolute inset-0 flex items-center justify-center">
+                        <p className={`text-xs font-bold uppercase tracking-wider ${
+                            darkMode ? 'text-white/20' : 'text-stone-300'
+                        }`}>
+                            Aucune donnée sur cette période
+                        </p>
+                    </div>
+                )}
+            </div>
         </div>
     );
 };
@@ -212,47 +494,88 @@ const AdminDashboard = ({ user, canUseDangerousAdminActions = false, darkMode = 
         if (!allOrders.length) return [];
 
         const activeOrders = allOrders.filter(o => o.status !== 'cancelled' && o.status !== 'cancelled_by_client');
-        
+
+        // Local timezone-safe formatters to prevent UTC off-by-one shifts
+        const toLocalDateStr = (d) => {
+            const y = d.getFullYear();
+            const m = String(d.getMonth() + 1).padStart(2, '0');
+            const day = String(d.getDate()).padStart(2, '0');
+            return `${y}-${m}-${day}`;
+        };
+
+        const toLocalMonthStr = (d) => {
+            const y = d.getFullYear();
+            const m = String(d.getMonth() + 1).padStart(2, '0');
+            return `${y}-${m}`;
+        };
+
         if (timeFilter === '7days' || timeFilter === '1month') {
             const count = timeFilter === '7days' ? 7 : 30;
-            const dates = Array.from({length: count}, (_, i) => {
+            const dates = Array.from({ length: count }, (_, i) => {
                 const d = new Date();
                 d.setDate(d.getDate() - (count - 1 - i));
-                return { 
-                    raw: d.toISOString().split('T')[0], 
-                    label: timeFilter === '7days' 
-                        ? d.toLocaleDateString('fr-FR', { weekday: 'short' }) 
-                        : d.toLocaleDateString('fr-FR', { day: '2-digit', month: 'narrow' }) 
-                };
+                const raw = toLocalDateStr(d);
+
+                if (timeFilter === '7days') {
+                    const dayName = d.toLocaleDateString('fr-FR', { weekday: 'short' });
+                    const dayNameCap = dayName.charAt(0).toUpperCase() + dayName.slice(1, 3);
+                    const dayNum = String(d.getDate()).padStart(2, '0');
+                    const label = `${dayNameCap} ${dayNum}`;
+                    const fullDate = d.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+                    return { raw, label, axisLabel: label, fullDate };
+                } else {
+                    // 30 days: display only 6 milestone ticks (indices: 0, 6, 12, 18, 24, 29) to avoid ANY collision
+                    const dayNum = String(d.getDate()).padStart(2, '0');
+                    const monthShort = d.toLocaleDateString('fr-FR', { month: 'short' }).replace('.', '');
+                    const label = `${dayNum} ${monthShort}`;
+                    const isMilestone = (i === 0 || i === 6 || i === 12 || i === 18 || i === 24 || i === 29);
+                    const axisLabel = isMilestone ? `${dayNum} ${monthShort}` : '';
+                    const fullDate = d.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+                    return { raw, label, axisLabel, fullDate };
+                }
             });
 
             const revMap = {};
-            dates.forEach(d => revMap[d.raw] = 0);
+            const countMap = {};
+            dates.forEach(d => {
+                revMap[d.raw] = 0;
+                countMap[d.raw] = 0;
+            });
 
             activeOrders.forEach(data => {
                 const ts = getMillis(data.createdAt);
                 if (ts) {
-                    const dateStr = new Date(ts).toISOString().split('T')[0];
-                    if (revMap[dateStr] !== undefined) {
-                        revMap[dateStr] += (data.total || 0);
+                    const d = new Date(ts);
+                    const key = toLocalDateStr(d);
+                    if (revMap[key] !== undefined) {
+                        revMap[key] += (Number(data.total) || 0);
+                        countMap[key] += 1;
                     }
                 }
             });
 
-            return dates.map(d => ({ label: d.label, value: revMap[d.raw] }));
+            return dates.map(d => ({
+                label: d.label,
+                axisLabel: d.axisLabel,
+                fullDate: d.fullDate,
+                value: Math.round(revMap[d.raw] * 100) / 100,
+                orderCount: countMap[d.raw] || 0
+            }));
         } else {
             // 1 Year or All Time: Group by Month
-            const monthNames = ['Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', 'Août', 'Sept', 'Oct', 'Nov', 'Déc'];
+            const monthNamesShort = ['Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', 'Août', 'Sept', 'Oct', 'Nov', 'Déc'];
+            const monthNamesLong = ['Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre'];
             let monthsArray = [];
-            
+
             if (timeFilter === '1year') {
-                monthsArray = Array.from({length: 12}, (_, i) => {
+                monthsArray = Array.from({ length: 12 }, (_, i) => {
                     const d = new Date();
                     d.setMonth(d.getMonth() - (11 - i));
-                    return { 
-                        raw: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`, 
-                        label: monthNames[d.getMonth()] 
-                    };
+                    const raw = toLocalMonthStr(d);
+                    const mIdx = d.getMonth();
+                    const shortLabel = monthNamesShort[mIdx];
+                    const fullDate = `${monthNamesLong[mIdx]} ${d.getFullYear()}`;
+                    return { raw, label: shortLabel, axisLabel: shortLabel, fullDate };
                 });
             } else {
                 // All Time: find oldest order
@@ -260,33 +583,55 @@ const AdminDashboard = ({ user, canUseDangerousAdminActions = false, darkMode = 
                 const start = new Date(oldestTs);
                 const end = new Date();
                 let current = new Date(start.getFullYear(), start.getMonth(), 1);
-                
+
                 while (current <= end) {
-                    monthsArray.push({
-                        raw: `${current.getFullYear()}-${String(current.getMonth() + 1).padStart(2, '0')}`,
-                        label: `${monthNames[current.getMonth()]} ${String(current.getFullYear()).slice(-2)}`
-                    });
-                    current.setMonth(current.setMonth() + 1);
+                    const raw = toLocalMonthStr(current);
+                    const mIdx = current.getMonth();
+                    const yr = String(current.getFullYear()).slice(-2);
+                    const shortLabel = `${monthNamesShort[mIdx]} ${yr}`;
+                    const fullDate = `${monthNamesLong[mIdx]} ${current.getFullYear()}`;
+                    monthsArray.push({ raw, label: shortLabel, axisLabel: shortLabel, fullDate });
+                    current.setMonth(current.getMonth() + 1);
                 }
-                // Cap to reasonable amount for display if too long
-                if (monthsArray.length > 24) monthsArray = monthsArray.slice(-24);
+
+                if (monthsArray.length > 24) {
+                    monthsArray = monthsArray.slice(-24);
+                }
+
+                // If many months, display ticks evenly spaced to avoid crowding
+                const step = monthsArray.length > 12 ? Math.ceil(monthsArray.length / 7) : 1;
+                monthsArray = monthsArray.map((m, idx) => ({
+                    ...m,
+                    axisLabel: (idx % step === 0 || idx === monthsArray.length - 1) ? m.label : ''
+                }));
             }
 
             const revMap = {};
-            monthsArray.forEach(m => revMap[m.raw] = 0);
+            const countMap = {};
+            monthsArray.forEach(m => {
+                revMap[m.raw] = 0;
+                countMap[m.raw] = 0;
+            });
 
             activeOrders.forEach(data => {
                 const ts = getMillis(data.createdAt);
                 if (ts) {
                     const d = new Date(ts);
-                    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+                    const key = toLocalMonthStr(d);
                     if (revMap[key] !== undefined) {
-                        revMap[key] += (data.total || 0);
+                        revMap[key] += (Number(data.total) || 0);
+                        countMap[key] += 1;
                     }
                 }
             });
 
-            return monthsArray.map(m => ({ label: m.label, value: revMap[m.raw] }));
+            return monthsArray.map(m => ({
+                label: m.label,
+                axisLabel: m.axisLabel,
+                fullDate: m.fullDate,
+                value: Math.round(revMap[m.raw] * 100) / 100,
+                orderCount: countMap[m.raw] || 0
+            }));
         }
     }, [allOrders, timeFilter]);
 
@@ -477,18 +822,18 @@ const AdminDashboard = ({ user, canUseDangerousAdminActions = false, darkMode = 
                 {/* CA */}
                 <div className={`p-8 rounded-[32px] ${baseCard}`}>
                     <p className={`text-[10px] uppercase font-black tracking-[0.2em] mb-4 ${textMuted}`}>Chiffre d'Affaires</p>
-                    <h2 className={`text-4xl lg:text-5xl font-black tracking-tighter mb-2 ${textBase}`}>
-                        {stats.totalRevenue.toLocaleString('fr-FR')} <span className="text-2xl text-stone-500">€</span>
+                    <h2 className={`text-4xl lg:text-5xl font-black font-mono tracking-tight mb-2 ${textBase}`}>
+                        {stats.totalRevenue.toLocaleString('fr-FR')} <span className="text-2xl text-stone-500 font-normal">€</span>
                     </h2>
                     <p className="text-xs font-bold text-emerald-500 flex items-center gap-1.5">
-                        <TrendingUp size={14} /> Panier moyen : {stats.averageOrderValue} €
+                        <TrendingUp size={14} /> Panier moyen : <span className="font-mono">{stats.averageOrderValue} €</span>
                     </p>
                 </div>
 
                 {/* COMMANDES */}
                 <div className={`p-8 rounded-[32px] ${baseCard}`}>
                     <p className={`text-[10px] uppercase font-black tracking-[0.2em] mb-4 ${textMuted}`}>Commandes</p>
-                    <h2 className={`text-4xl lg:text-5xl font-black tracking-tighter mb-2 ${textBase}`}>
+                    <h2 className={`text-4xl lg:text-5xl font-black font-mono tracking-tight mb-2 ${textBase}`}>
                         {stats.totalOrders}
                     </h2>
                     <p className="text-xs font-bold text-indigo-400 flex items-center gap-1.5">
@@ -499,7 +844,7 @@ const AdminDashboard = ({ user, canUseDangerousAdminActions = false, darkMode = 
                 {/* CLIENTS */}
                 <div className={`p-8 rounded-[32px] ${baseCard} relative`}>
                     <p className={`text-[10px] uppercase font-black tracking-[0.2em] mb-4 ${textMuted}`}>Clients Inscrits</p>
-                    <h2 className={`text-4xl lg:text-5xl font-black tracking-tighter mb-2 ${textBase}`}>
+                    <h2 className={`text-4xl lg:text-5xl font-black font-mono tracking-tight mb-2 ${textBase}`}>
                         {stats.registeredUsers}
                     </h2>
                     <button
@@ -517,42 +862,21 @@ const AdminDashboard = ({ user, canUseDangerousAdminActions = false, darkMode = 
                     {/* Catalog value strictly positioned on top right of clients card as a tiny metric */}
                     <div className="absolute top-8 right-8 text-right">
                         <p className={`text-[8px] uppercase font-black tracking-widest ${textMuted}`}>Valeur Catalogue</p>
-                        <p className={`text-xs font-black ${darkMode ? 'text-stone-300' : 'text-stone-600'}`}>{stats.totalStockValue} €</p>
+                        <p className={`text-xs font-black font-mono ${darkMode ? 'text-stone-300' : 'text-stone-600'}`}>{stats.totalStockValue} €</p>
                     </div>
                 </div>
             </div>
 
             {/* MODULE 2: GRAPHICS (CA + STATUS) */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                <div className={`lg:col-span-2 p-8 rounded-[32px] ${baseCard}`}>
-                    <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-8">
-                        <div>
-                            <h3 className={`text-sm font-black uppercase tracking-widest ${textBase}`}>Évolution du CA</h3>
-                            <p className={`text-[10px] font-bold uppercase tracking-wider ${textMuted} mt-1`}>Sur {getFilterLabel()}</p>
-                        </div>
-                        
-                        <div className={`flex gap-1 p-1 rounded-xl shrink-0 ${darkMode ? 'bg-white/5' : 'bg-stone-100'}`}>
-                            {[
-                                { id: '7days', label: '7j' },
-                                { id: '1month', label: '1m' },
-                                { id: '1year', label: '1a' },
-                                { id: 'alltime', label: 'Max' }
-                            ].map(f => (
-                                <button
-                                    key={f.id}
-                                    onClick={() => setTimeFilter(f.id)}
-                                    className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase transition-all duration-300 ${
-                                        timeFilter === f.id
-                                            ? (darkMode ? 'bg-white text-stone-900 shadow-xl' : 'bg-white text-stone-900 shadow-md')
-                                            : (darkMode ? 'text-white/40 hover:text-white' : 'text-stone-400 hover:text-stone-600')
-                                    }`}
-                                >
-                                    {f.label}
-                                </button>
-                            ))}
-                        </div>
-                    </div>
-                    <RevenueChart data={chartData} darkMode={darkMode} />
+                <div className={`lg:col-span-2 p-6 sm:p-8 rounded-[32px] ${baseCard}`}>
+                    <RevenueChart 
+                        data={chartData} 
+                        darkMode={darkMode} 
+                        timeFilter={timeFilter} 
+                        setTimeFilter={setTimeFilter} 
+                        filterLabel={getFilterLabel()} 
+                    />
                 </div>
                 
                 <div className={`p-8 rounded-[32px] flex flex-col items-center justify-center ${baseCard}`}>
@@ -607,7 +931,7 @@ const AdminDashboard = ({ user, canUseDangerousAdminActions = false, darkMode = 
                                                     {order.status === 'shipped' ? 'Expédié' : (order.status === 'completed' || order.status === 'paid') ? 'Payé' : 'Attente'}
                                                 </span>
                                             </td>
-                                            <td className={`py-4 text-right font-black tracking-tight ${textBase}`}>
+                                            <td className={`py-4 text-right font-black font-mono tracking-tight ${textBase}`}>
                                                 {order.total} €
                                             </td>
                                         </tr>

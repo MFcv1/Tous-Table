@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
     collection,
@@ -12,7 +13,7 @@ import {
     updateDoc,
     where,
 } from 'firebase/firestore';
-import { AlertTriangle, Bell, CalendarClock, Package, Truck, X } from 'lucide-react';
+import { ArrowRight, Package, X } from 'lucide-react';
 import { db } from '../../firebase/config';
 import { useAuth } from '../../contexts/AuthContext';
 import { getMillis } from '../../utils/time';
@@ -25,10 +26,9 @@ const REMINDER_DELAY_MS = 2 * 24 * 60 * 60 * 1000;
 const formatOrderDate = (timestamp) => {
     const millis = getMillis(timestamp);
     if (!millis) return 'date inconnue';
-
     return new Intl.DateTimeFormat('fr-FR', {
         day: '2-digit',
-        month: 'long',
+        month: 'short',
         year: 'numeric',
         hour: '2-digit',
         minute: '2-digit',
@@ -36,10 +36,7 @@ const formatOrderDate = (timestamp) => {
 };
 
 const getOrderTitle = (order) => {
-    const itemNames = (order.items || [])
-        .map((item) => item?.name)
-        .filter(Boolean);
-
+    const itemNames = (order.items || []).map((item) => item?.name).filter(Boolean);
     if (itemNames.length > 0) return itemNames.join(', ');
     return `Commande #${getOrderReference(order.id)}`;
 };
@@ -52,37 +49,33 @@ const AdminShippingReminder = ({ darkMode = false, onOpenOrders }) => {
     const { user } = useAuth();
     const [orders, setOrders] = useState([]);
     const [dismissedKey, setDismissedKey] = useState('');
+    const [selectedOrderId, setSelectedOrderId] = useState(null);
     const [isSnoozing, setIsSnoozing] = useState(false);
     const [isMarkingShipped, setIsMarkingShipped] = useState(false);
     const [error, setError] = useState('');
 
     useEffect(() => {
         if (!user?.uid) return undefined;
-
         const q = query(
             collection(db, 'orders'),
             where('status', 'in', REMINDER_STATUSES),
             limit(REMINDER_QUERY_LIMIT)
         );
-
         const unsub = onSnapshot(q, (snap) => {
             const fetchedOrders = snap.docs
                 .map((orderDoc) => ({ id: orderDoc.id, ...orderDoc.data() }))
                 .sort((a, b) => getMillis(a.createdAt) - getMillis(b.createdAt));
-
             setOrders(fetchedOrders);
             setError('');
         }, (snapshotError) => {
             console.error('Shipping reminder orders load error:', snapshotError);
-            setError("Impossible de verifier les commandes a expedier.");
+            setError('Impossible de vérifier les commandes à expédier.');
         });
-
         return () => unsub();
     }, [user?.uid]);
 
     const dueOrders = useMemo(() => {
         if (!user?.uid) return [];
-
         const now = Date.now();
         return orders.filter((order) => {
             const dueAt = getAdminSnoozeDueAt(order, user.uid);
@@ -90,217 +83,223 @@ const AdminShippingReminder = ({ darkMode = false, onOpenOrders }) => {
         });
     }, [orders, user?.uid]);
 
-    const dueKey = useMemo(() => dueOrders.map((order) => order.id).join('|'), [dueOrders]);
+    const dueKey = useMemo(() => dueOrders.map((o) => o.id).join('|'), [dueOrders]);
     const isOpen = dueOrders.length > 0 && dueKey !== dismissedKey;
-    const primaryOrder = dueOrders[0];
+
+    // Commande active : la commande sélectionnée par l'utilisateur ou par défaut la première de la liste
+    const activeOrder = useMemo(() => {
+        if (selectedOrderId) {
+            const found = dueOrders.find((o) => o.id === selectedOrderId);
+            if (found) return found;
+        }
+        return dueOrders[0] || null;
+    }, [dueOrders, selectedOrderId]);
+
+    // Empêcher le scroll de la page arrière-plan quand le modal est ouvert
+    useEffect(() => {
+        if (!isOpen || typeof document === 'undefined') return undefined;
+        const prevOverflow = document.body.style.overflow;
+        document.body.style.overflow = 'hidden';
+        return () => {
+            document.body.style.overflow = prevOverflow;
+        };
+    }, [isOpen]);
 
     const handleSnooze = useCallback(async () => {
         if (!user?.uid || dueOrders.length === 0) return;
-
         setIsSnoozing(true);
         setError('');
-
         const dueAt = Timestamp.fromMillis(Date.now() + REMINDER_DELAY_MS);
         try {
             await Promise.all(dueOrders.map((order) => updateDoc(
                 doc(db, 'orders', order.id),
                 new FieldPath('shippingReminderSnoozes', user.uid),
-                {
-                    dueAt,
-                    snoozedAt: serverTimestamp(),
-                }
+                { dueAt, snoozedAt: serverTimestamp() }
             )));
             setDismissedKey(dueKey);
         } catch (snoozeError) {
             console.error('Shipping reminder snooze error:', snoozeError);
-            setError("Le rappel n'a pas pu etre enregistre. Reessayez dans un instant.");
+            setError("Le rappel n'a pas pu être enregistré.");
         } finally {
             setIsSnoozing(false);
         }
     }, [dueKey, dueOrders, user?.uid]);
 
-    const handleMarkPrimaryAsShipped = useCallback(async () => {
-        if (!primaryOrder) return;
-
+    const handleMarkActiveAsShipped = useCallback(async () => {
+        if (!activeOrder) return;
         setIsMarkingShipped(true);
         setError('');
-
         try {
-            await updateDoc(doc(db, 'orders', primaryOrder.id), { status: 'shipped' });
-            setDismissedKey(dueKey);
+            await updateDoc(doc(db, 'orders', activeOrder.id), { status: 'shipped' });
+            // On ne ferme pas le modal : Firestore retire la commande expédiée de dueOrders,
+            // et la commande suivante passe automatiquement en bleu et devient active !
+            // Si c'était la dernière commande à expédier, dueOrders devient vide et le modal se ferme de lui-même.
+            setSelectedOrderId(null);
         } catch (markError) {
             console.error('Shipping reminder mark shipped error:', markError);
-            setError("La commande n'a pas pu etre marquee comme expediee. Ouvrez l'onglet Commandes et reessayez.");
+            setError("Impossible de marquer comme expédiée. Réessayez dans l'onglet Commandes.");
         } finally {
             setIsMarkingShipped(false);
         }
-    }, [dueKey, primaryOrder]);
+    }, [activeOrder]);
 
-    if (!user?.uid) return null;
+    if (!user?.uid || typeof document === 'undefined') return null;
 
-    return (
+    /* Palette Apple OS */
+    const dk = darkMode;
+    const card = dk ? 'bg-[#1c1c1e]/95 border border-white/[0.08]' : 'bg-white/95 border border-black/[0.06]';
+    const textPrimary = dk ? 'text-white' : 'text-[#1d1d1f]';
+    const textSub = dk ? 'text-white/40' : 'text-black/35';
+    const divider = dk ? 'bg-white/[0.08]' : 'bg-black/[0.06]';
+    const rowBg = dk ? 'bg-white/[0.05] border border-white/[0.06]' : 'bg-[#f5f5f7] border border-black/[0.04]';
+    const rowHL = dk ? 'bg-[#0071e3]/[0.15] border border-[#0071e3]/30 text-white' : 'bg-[#0071e3]/[0.08] border border-[#0071e3]/20';
+    const badgeCls = dk ? 'bg-[#0071e3]/20 text-[#60aeff]' : 'bg-[#0071e3]/10 text-[#0071e3]';
+    const closeCls = dk ? 'text-white/25 hover:text-white/60 hover:bg-white/[0.08]' : 'text-black/25 hover:text-black/60 hover:bg-black/[0.05]';
+    const primaryBtn = 'bg-[#0071e3] hover:bg-[#0077ed] active:bg-[#006cd6] text-white';
+    const secondaryBtn = dk ? 'bg-white/[0.08] hover:bg-white/[0.12] text-white border border-white/10' : 'bg-black/[0.05] hover:bg-black/[0.08] text-[#1d1d1f] border border-black/[0.06]';
+    const ghostBtn = dk ? 'text-white/35 hover:text-white/60' : 'text-black/30 hover:text-black/55';
+    const errCls = dk ? 'bg-red-500/10 text-red-400' : 'bg-red-50 text-red-500';
+    const pillCls = 'bg-[#1c1c1e] border border-white/[0.1] text-white shadow-2xl shadow-black/50';
+
+    const content = (
         <>
-            {dueOrders.length > 0 && (
+            {dueOrders.length > 0 && !isOpen && (
                 <button
                     type="button"
                     onClick={() => setDismissedKey('')}
-                    className={`fixed bottom-5 right-5 z-[90] flex items-center gap-2 rounded-full border px-4 py-3 text-[10px] font-black uppercase tracking-widest shadow-2xl transition-all hover:scale-[1.02] ${
-                        darkMode
-                            ? 'border-amber-400/20 bg-amber-500 text-stone-950 shadow-black/40'
-                            : 'border-amber-200 bg-amber-500 text-white shadow-amber-900/20'
-                    }`}
-                    title="Rappel expedition"
+                    className={`fixed bottom-6 right-6 z-[9990] flex items-center gap-2 rounded-full px-4 py-2.5 text-[11px] font-medium transition-all duration-200 hover:scale-[1.04] active:scale-[0.97] ${pillCls}`}
+                    title="Commandes à expédier"
                 >
-                    <Bell size={15} />
-                    <span>{dueOrders.length}</span>
+                    <Package size={13} strokeWidth={2} />
+                    <span>{dueOrders.length} à expédier</span>
                 </button>
             )}
 
             <AnimatePresence>
                 {isOpen && (
-                    <div className="fixed inset-0 z-[3000] flex items-center justify-center p-4 md:p-6 bg-stone-950/60 backdrop-blur-md">
+                    <motion.div
+                        key="overlay"
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        transition={{ duration: 0.16 }}
+                        onClick={(e) => {
+                            if (e.target === e.currentTarget) {
+                                setDismissedKey(dueKey);
+                            }
+                        }}
+                        className={`fixed inset-0 z-[9999] flex items-end sm:items-center justify-center p-0 sm:p-6 w-full h-full min-h-[100dvh] overflow-hidden ${dk ? 'bg-black/80' : 'bg-black/40'} backdrop-blur-xl`}
+                    >
                         <motion.div
-                            initial={{ opacity: 0, y: 18, scale: 0.96 }}
-                            animate={{ opacity: 1, y: 0, scale: 1 }}
-                            exit={{ opacity: 0, y: 12, scale: 0.98 }}
-                            transition={{ duration: 0.22, ease: 'easeOut' }}
-                            className={`relative w-full max-w-2xl overflow-hidden rounded-[2rem] border p-6 shadow-2xl md:p-8 ${
-                                darkMode
-                                    ? 'border-white/10 bg-stone-900 text-white shadow-black/50'
-                                    : 'border-stone-200 bg-white text-stone-950 shadow-stone-900/20'
-                            }`}
+                            initial={{ opacity: 0, y: 28 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, y: 20 }}
+                            transition={{ duration: 0.26, ease: [0.32, 0.72, 0, 1] }}
+                            className={`relative w-full sm:max-w-[400px] rounded-t-[28px] sm:rounded-[24px] overflow-hidden shadow-[0_28px_72px_rgba(0,0,0,0.35)] ${card}`}
                         >
-                            <button
-                                type="button"
-                                onClick={() => setDismissedKey(dueKey)}
-                                className={`absolute right-4 top-4 flex h-9 w-9 items-center justify-center rounded-full transition-colors ${
-                                    darkMode
-                                        ? 'bg-white/5 text-white/50 hover:bg-white/10 hover:text-white'
-                                        : 'bg-stone-100 text-stone-400 hover:bg-stone-200 hover:text-stone-900'
-                                }`}
-                                aria-label="Fermer le rappel"
-                            >
-                                <X size={18} />
-                            </button>
+                            <div className="flex items-center justify-between px-5 pt-5 pb-4">
+                                <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-[5px] text-[11px] font-semibold ${badgeCls}`}>
+                                    <Package size={11} strokeWidth={2.2} />
+                                    {dueOrders.length === 1 ? '1 commande' : `${dueOrders.length} commandes`}
+                                </span>
+                                <button
+                                    type="button"
+                                    onClick={() => setDismissedKey(dueKey)}
+                                    className={`flex h-7 w-7 items-center justify-center rounded-full transition-colors duration-150 ${closeCls}`}
+                                    aria-label="Fermer"
+                                >
+                                    <X size={14} strokeWidth={2} />
+                                </button>
+                            </div>
 
-                            <div className="space-y-6 pr-2">
-                                <div className="flex items-start gap-4">
-                                    <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-amber-500 text-white shadow-lg shadow-amber-500/20">
-                                        <AlertTriangle size={28} />
-                                    </div>
-                                    <div className="min-w-0 space-y-2">
-                                        <p className="text-[10px] font-black uppercase tracking-[0.28em] text-amber-500">
-                                            Rappel expedition
-                                        </p>
-                                        <h3 className="text-2xl font-black tracking-tighter md:text-4xl">
-                                            {dueOrders.length > 1
-                                                ? `${dueOrders.length} commandes a verifier`
-                                                : 'Commande a verifier'}
-                                        </h3>
-                                    </div>
-                                </div>
-
-                                {primaryOrder && (
-                                    <div className={`rounded-2xl border p-4 ${
-                                        darkMode ? 'border-white/10 bg-white/5' : 'border-amber-100 bg-amber-50/70'
-                                    }`}>
-                                        <div className="flex items-start gap-3">
-                                            <Package size={18} className="mt-0.5 shrink-0 text-amber-500" />
-                                            <div className="min-w-0">
-                                                <p className="font-black leading-snug">
-                                                    Avez-vous expedie {getOrderTitle(primaryOrder)} ?
-                                                </p>
-                                                <p className={`mt-2 flex items-center gap-2 text-xs font-bold ${
-                                                    darkMode ? 'text-stone-300' : 'text-stone-600'
-                                                }`}>
-                                                    <CalendarClock size={14} />
-                                                    Commande du {formatOrderDate(primaryOrder.createdAt)}
-                                                </p>
-                                            </div>
-                                        </div>
-                                    </div>
-                                )}
-
-                                {dueOrders.length > 1 && (
-                                    <div className={`max-h-40 space-y-2 overflow-y-auto rounded-2xl border p-3 ${
-                                        darkMode ? 'border-white/10 bg-stone-950/30' : 'border-stone-100 bg-stone-50'
-                                    }`}>
-                                        {dueOrders.slice(0, 5).map((order) => (
-                                            <div key={order.id} className="flex items-center justify-between gap-3 text-xs">
-                                                <span className="min-w-0 truncate font-bold">{getOrderTitle(order)}</span>
-                                                <span className="shrink-0 text-stone-400">{formatOrderDate(order.createdAt)}</span>
-                                            </div>
-                                        ))}
-                                        {dueOrders.length > 5 && (
-                                            <p className="pt-1 text-[10px] font-black uppercase tracking-widest text-stone-400">
-                                                + {dueOrders.length - 5} autre(s) commande(s)
-                                            </p>
-                                        )}
-                                    </div>
-                                )}
-
-                                <p className={`text-sm font-medium leading-relaxed ${
-                                    darkMode ? 'text-stone-300' : 'text-stone-600'
-                                }`}>
-                                    Tant qu'une commande reste non expediee, ce rappel revient pour chaque admin.
-                                    Le bouton Expediee dans l'onglet Commandes declenche l'email client avec les informations transporteur et le lien d'avis.
+                            <div className="px-5 pb-4">
+                                <h2 className={`text-[20px] font-semibold tracking-tight ${textPrimary}`}>
+                                    À expédier
+                                </h2>
+                                <p className={`mt-0.5 text-[13px] leading-snug ${textSub}`}>
+                                    {dueOrders.length === 1
+                                        ? 'Cette commande attend votre traitement.'
+                                        : `${dueOrders.length} commandes attendent votre traitement.`}
                                 </p>
+                            </div>
 
-                                {error && (
-                                    <p className="rounded-xl bg-red-500/10 px-4 py-3 text-sm font-bold text-red-500">
-                                        {error}
+                            <div className={`h-px mx-5 ${divider}`} />
+
+                            <div className="px-5 py-4 space-y-2 max-h-[200px] overflow-y-auto">
+                                {dueOrders.slice(0, 6).map((order) => {
+                                    const isSelected = order.id === activeOrder?.id;
+                                    return (
+                                        <button
+                                            key={order.id}
+                                            type="button"
+                                            onClick={() => setSelectedOrderId(order.id)}
+                                            className={`w-full text-left flex items-center justify-between gap-3 rounded-[13px] px-3.5 py-2.5 transition-all duration-150 cursor-pointer ${
+                                                isSelected ? rowHL : `${rowBg} hover:opacity-90`
+                                            }`}
+                                        >
+                                            <span className={`text-[13px] font-medium truncate min-w-0 ${isSelected ? (dk ? 'text-white font-semibold' : 'text-[#0071e3] font-semibold') : textPrimary}`}>
+                                                {getOrderTitle(order)}
+                                            </span>
+                                            <span className={`text-[11px] shrink-0 tabular-nums ${isSelected ? (dk ? 'text-white/60' : 'text-[#0071e3]/70') : textSub}`}>
+                                                {formatOrderDate(order.createdAt)}
+                                            </span>
+                                        </button>
+                                    );
+                                })}
+                                {dueOrders.length > 6 && (
+                                    <p className={`text-center text-[11px] py-0.5 ${textSub}`}>
+                                        +{dueOrders.length - 6} autre{dueOrders.length - 6 > 1 ? 's' : ''}
                                     </p>
                                 )}
-
-                                <div className="grid gap-3 lg:grid-cols-3">
-                                    <button
-                                        type="button"
-                                        onClick={handleMarkPrimaryAsShipped}
-                                        disabled={!primaryOrder || isMarkingShipped || isSnoozing}
-                                        className={`flex items-center justify-center gap-2 rounded-2xl px-5 py-4 text-[10px] font-black uppercase tracking-widest transition-all disabled:cursor-not-allowed disabled:opacity-60 ${
-                                            darkMode
-                                                ? 'bg-emerald-400 text-stone-950 hover:bg-emerald-300'
-                                                : 'bg-emerald-600 text-white hover:bg-emerald-500'
-                                        }`}
-                                    >
-                                        <Truck size={16} />
-                                        {isMarkingShipped ? 'Validation...' : 'Marquer expediee'}
-                                    </button>
-                                    <button
-                                        type="button"
-                                        onClick={() => {
-                                            onOpenOrders?.();
-                                            setDismissedKey(dueKey);
-                                        }}
-                                        className={`flex items-center justify-center gap-2 rounded-2xl px-5 py-4 text-[10px] font-black uppercase tracking-widest transition-all ${
-                                            darkMode
-                                                ? 'bg-white text-stone-950 hover:bg-stone-200'
-                                                : 'bg-stone-950 text-white hover:bg-stone-800'
-                                        }`}
-                                    >
-                                        <Truck size={16} />
-                                        Ouvrir commandes
-                                    </button>
-                                    <button
-                                        type="button"
-                                        onClick={handleSnooze}
-                                        disabled={isSnoozing}
-                                        className={`rounded-2xl border px-5 py-4 text-[10px] font-black uppercase tracking-widest transition-all disabled:cursor-not-allowed disabled:opacity-60 ${
-                                            darkMode
-                                                ? 'border-white/10 bg-white/5 text-white hover:bg-white/10'
-                                                : 'border-stone-200 bg-stone-50 text-stone-700 hover:bg-stone-100'
-                                        }`}
-                                    >
-                                        {isSnoozing ? 'Enregistrement...' : 'Me le rappeler dans 2 jours'}
-                                    </button>
-                                </div>
                             </div>
+
+                            {error && (
+                                <div className={`mx-5 mb-3 rounded-[12px] px-4 py-2.5 text-[12px] font-medium ${errCls}`}>
+                                    {error}
+                                </div>
+                            )}
+
+                            <div className={`h-px mx-5 ${divider}`} />
+
+                            <div className="px-5 py-4 space-y-2">
+                                <button
+                                    type="button"
+                                    onClick={handleMarkActiveAsShipped}
+                                    disabled={!activeOrder || isMarkingShipped || isSnoozing}
+                                    className={`w-full flex items-center justify-center rounded-[13px] px-5 py-3 text-[14px] font-semibold transition-all duration-150 disabled:cursor-not-allowed disabled:opacity-40 ${primaryBtn}`}
+                                >
+                                    {isMarkingShipped ? 'Validation...' : 'Marquer comme expédiée'}
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        onOpenOrders?.();
+                                        setDismissedKey(dueKey);
+                                    }}
+                                    className={`w-full flex items-center justify-center gap-1.5 rounded-[13px] px-5 py-3 text-[14px] font-semibold transition-all duration-150 ${secondaryBtn}`}
+                                >
+                                    Ouvrir les commandes
+                                    <ArrowRight size={14} strokeWidth={2} />
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={handleSnooze}
+                                    disabled={isSnoozing}
+                                    className={`w-full py-2.5 text-[13px] font-medium transition-colors duration-150 disabled:cursor-not-allowed disabled:opacity-40 ${ghostBtn}`}
+                                >
+                                    {isSnoozing ? 'Enregistrement...' : 'Rappeler dans 2 jours'}
+                                </button>
+                            </div>
+
+                            <div className="sm:hidden" style={{ height: 'env(safe-area-inset-bottom, 0px)' }} />
                         </motion.div>
-                    </div>
+                    </motion.div>
                 )}
             </AnimatePresence>
         </>
     );
+
+    return createPortal(content, document.body);
 };
 
 export default AdminShippingReminder;

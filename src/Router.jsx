@@ -456,16 +456,7 @@ const AppRouter = ({
             {view === 'login' && isSecretGateOpen && <Suspense fallback={null}><LoginView onSuccess={() => setView('admin')} /></Suspense>}
 
             {view === 'admin' && isAdmin && (
-                <div className={`max-w-6xl mx-auto px-4 py-24 md:py-32 space-y-12 md:space-y-16 animate-in fade-in ${darkMode ? 'text-white' : 'text-stone-900'}`}>
-                    <SEO
-                        title="Administration"
-                        description="Administration privee Tous a Table."
-                        url="/admin"
-                        robots="noindex,nofollow,noarchive"
-                    />
-                    <Suspense fallback={null}>
-                        <AdminIPTracker />
-                    </Suspense>
+                <>
                     <Suspense fallback={null}>
                         <AdminShippingReminder
                             darkMode={darkMode}
@@ -475,7 +466,17 @@ const AppRouter = ({
                             }}
                         />
                     </Suspense>
-                    {/* GESTION ATELIER HEADER */}
+                    <div className={`max-w-6xl mx-auto px-4 py-24 md:py-32 space-y-12 md:space-y-16 animate-in fade-in ${darkMode ? 'text-white' : 'text-stone-900'}`}>
+                        <SEO
+                            title="Administration"
+                            description="Administration privee Tous a Table."
+                            url="/admin"
+                            robots="noindex,nofollow,noarchive"
+                        />
+                        <Suspense fallback={null}>
+                            <AdminIPTracker />
+                        </Suspense>
+                        {/* GESTION ATELIER HEADER */}
                     <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
                         <div className="space-y-2">
                             <p className={`text-[10px] uppercase font-black tracking-[0.3em] ${darkMode ? 'text-stone-500' : 'text-stone-400'}`}>Système de Contrôle</p>
@@ -638,6 +639,7 @@ const AppRouter = ({
                         )}
                     </Suspense>
                 </div>
+                </>
             )}
         </main>
     );
